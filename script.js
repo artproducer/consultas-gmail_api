@@ -16,6 +16,7 @@ let accessToken = null;
 let tokenClient = null;
 let tokenExpiry = 0;
 let tokenRefreshTimer = null;
+let lastAuthError = '';
 let sessionProfile = null;
 let isSearching = false;
 let pollingInterval = null;
@@ -251,11 +252,13 @@ async function ensureAccessToken(interactive = false) {
     if (restoreStoredToken() && tokenExpiry > Date.now() + TOKEN_REFRESH_BUFFER_MS) return true;
 
     try {
+        lastAuthError = '';
         await requestAccessToken(interactive ? 'consent' : '');
         await loadConnectedUserProfile();
         onAuthed(sessionProfile);
         return true;
-    } catch (_) {
+    } catch (err) {
+        lastAuthError = err && err.message ? err.message : 'No se pudo conectar con Google';
         if (!interactive) clearStoredToken();
         return false;
     }
@@ -277,12 +280,16 @@ async function ensureSession() {
 
 async function startAuth() {
     if (isAuthed()) return;
+    if (!getClientId()) {
+        showToast('Falta configurar HARDCODED_CLIENT_ID', 'error');
+        return;
+    }
     const connected = await ensureAccessToken(true);
     if (connected) {
         showToast('Sesion conectada', 'success');
         return;
     }
-    showToast('No se pudo conectar con Google', 'error');
+    showToast(lastAuthError || 'No se pudo conectar con Google', 'error');
 }
 
 async function logout() {
