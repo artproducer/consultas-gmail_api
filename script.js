@@ -10,6 +10,7 @@ const AUTH_START_ENDPOINT = '/.netlify/functions/google-auth-start';
 const SESSION_ENDPOINT = '/.netlify/functions/google-session';
 const SEARCH_ENDPOINT = '/.netlify/functions/gmail-search';
 const LOGOUT_ENDPOINT = '/.netlify/functions/google-logout';
+const AUTH_MESSAGE_TYPE = 'google-auth-finished';
 
 let sessionProfile = null;
 let isSearching = false;
@@ -17,9 +18,11 @@ let pollingInterval = null;
 let renderedMessageIds = new Set();
 let latestSeenInternalDate = 0;
 let defaultAuthBtnHtml = '';
+let authPopup = null;
+let authPopupPoll = null;
 
 // DOM Cache
-let resultsContainer, loader, submitBtn, filterInput, authBtn, authText, banner, backToTopBtn, clearFilterBtn;
+let resultsContainer, loader, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn;
 
 // AUTHENTICATION (NETLIFY)
 function isAuthed() {
@@ -28,7 +31,27 @@ function isAuthed() {
 
 function startAuth() {
     if (isAuthed()) return;
-    window.location.href = AUTH_START_ENDPOINT;
+    const width = 520;
+    const height = 720;
+    const left = Math.max(0, Math.round(window.screenX + ((window.outerWidth - width) / 2)));
+    const top = Math.max(0, Math.round(window.screenY + ((window.outerHeight - height) / 2)));
+    const features = `width=${width},height=${height},left=${left},top=${top},popup=yes,resizable=yes,scrollbars=yes`;
+
+    authPopup = window.open(AUTH_START_ENDPOINT, 'google-auth-popup', features);
+
+    if (!authPopup) {
+        window.location.href = AUTH_START_ENDPOINT;
+        return;
+    }
+
+    if (authPopupPoll) window.clearInterval(authPopupPoll);
+    authPopupPoll = window.setInterval(() => {
+        if (!authPopup || authPopup.closed) {
+            window.clearInterval(authPopupPoll);
+            authPopupPoll = null;
+            authPopup = null;
+        }
+    }, 500);
 }
 
 function renderAuthStatus(isConnected) {
@@ -127,6 +150,25 @@ async function ensureSession() {
 
     onLoggedOut();
     return false;
+}
+
+async function handleAuthPopupMessage(event) {
+    if (event.origin !== window.location.origin) return;
+    if (!event.data || event.data.type !== AUTH_MESSAGE_TYPE) return;
+
+    if (authPopupPoll) {
+        window.clearInterval(authPopupPoll);
+        authPopupPoll = null;
+    }
+    authPopup = null;
+
+    if (event.data.status === 'connected') {
+        const hasSession = await ensureSession();
+        if (hasSession) showToast('Sesion conectada', 'success');
+        return;
+    }
+
+    showToast('No se pudo conectar con Google', 'error');
 }
 
 async function logout() {
@@ -653,7 +695,7 @@ function setLoading(on) {
     isSearching = on;
     loader.style.display = on ? 'flex' : 'none';
     submitBtn.disabled = on;
-    submitBtn.textContent = on ? 'Buscando...' : 'Buscar Correos';
+    submitBtn.classList.toggle('is-loading', on);
 }
 
 function showToast(text, type = 'error') {
@@ -661,12 +703,6 @@ function showToast(text, type = 'error') {
     t.textContent = text;
     t.className = `show ${type}`;
     setTimeout(() => t.classList.remove('show'), 3500);
-}
-
-function toggleConfig() {
-    if (!banner) return;
-    banner.style.display = (banner.style.display === 'none' || !banner.style.display) ? 'block' : 'none';
-    if (banner.style.display === 'block') banner.scrollIntoView({ behavior: 'smooth' });
 }
 
 // INITIALIZATION
@@ -680,12 +716,10 @@ document.addEventListener('DOMContentLoaded', () => {
     authBtn = document.getElementById('authBtn');
     defaultAuthBtnHtml = authBtn ? authBtn.innerHTML : '';
     authText = document.getElementById('authStatus');
-    banner = document.getElementById('config-banner');
     backToTopBtn = document.getElementById('backToTopBtn');
     clearFilterBtn = document.getElementById('clearFilterBtn');
     const maxResultsInput = document.getElementById('maxResultsInput');
 
-    document.getElementById('showOrigin').textContent = location.origin;
     renderAuthStatus(false);
     authBtn.onclick = startAuth;
 
@@ -703,6 +737,7 @@ document.addEventListener('DOMContentLoaded', () => {
         normalizeMaxResultsInput();
     }
     window.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
+    window.addEventListener('message', handleAuthPopupMessage);
     updateBackToTopVisibility();
 
     ensureSession();

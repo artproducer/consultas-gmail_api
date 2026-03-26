@@ -17,6 +17,39 @@ function redirect(location, cookies = []) {
     };
 }
 
+function popupResponse(status, cookies = []) {
+    const body = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Google Auth</title>
+</head>
+<body>
+  <script>
+    (function () {
+      var payload = { type: 'google-auth-finished', status: '${status}' };
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(payload, window.location.origin);
+        window.close();
+        return;
+      }
+      window.location.replace('/?auth=${status}');
+    }());
+  </script>
+</body>
+</html>`;
+
+    return {
+        statusCode: 200,
+        headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store'
+        },
+        multiValueHeaders: cookies.length ? { 'Set-Cookie': cookies } : undefined,
+        body
+    };
+}
+
 exports.handler = async (event) => {
     const query = event.queryStringParameters || {};
     const state = query.state;
@@ -24,13 +57,13 @@ exports.handler = async (event) => {
     const storedState = readState(event);
 
     if (!code || !state || !storedState || state !== storedState) {
-        return redirect('/?auth=error', [clearStateCookie(event)]);
+        return popupResponse('error', [clearStateCookie(event)]);
     }
 
     try {
         const tokens = await exchangeCodeForTokens(code);
         if (!tokens.refresh_token) {
-            return redirect('/?auth=error', [clearStateCookie(event)]);
+            return popupResponse('error', [clearStateCookie(event)]);
         }
 
         const profile = await fetchGoogleProfile(tokens.access_token);
@@ -44,11 +77,11 @@ exports.handler = async (event) => {
             createdAt: Date.now()
         };
 
-        return redirect('/?auth=connected', [
+        return popupResponse('connected', [
             buildSessionCookie(session, event),
             clearStateCookie(event)
         ]);
     } catch (_) {
-        return redirect('/?auth=error', [clearStateCookie(event)]);
+        return popupResponse('error', [clearStateCookie(event)]);
     }
 };
