@@ -500,6 +500,36 @@ input[type="email"]:focus {
     flex-shrink: 0;
 }
 
+.live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-left: 10px;
+    display: inline-block;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.live-dot.is-live {
+    opacity: 1;
+    animation: livePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+    0%, 100% {
+        transform: scale(0.9);
+        box-shadow: 0 0 0 0 rgba(18, 140, 126, 0.05);
+        opacity: 0.55;
+    }
+    50% {
+        transform: scale(1.15);
+        box-shadow: 0 0 0 6px rgba(18, 140, 126, 0.18);
+        opacity: 1;
+    }
+}
+
 #resultsContainer {
     display: flex;
     flex-direction: column;

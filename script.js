@@ -5,7 +5,7 @@
 
 // ─── CONFIGURATION ───────────────────────────────────────────────────────────
 const MAX_RESULTS_CAP = 5;
-const POLLING_INTERVAL_MS = 90 * 1000;
+const POLLING_INTERVAL_MS = 2 * 1000;
 const AUTH_START_ENDPOINT = '/.netlify/functions/google-auth-start';
 const SESSION_ENDPOINT = '/.netlify/functions/google-session';
 const SEARCH_ENDPOINT = '/.netlify/functions/gmail-search';
@@ -93,6 +93,8 @@ function onAuthed(profile = null) {
 function onLoggedOut() {
     sessionProfile = null;
     if (pollingInterval) clearInterval(pollingInterval);
+    const live = document.getElementById('liveStatus');
+    if (live) live.classList.remove('is-live');
     const card = document.getElementById('authCard');
     card.classList.remove('connected');
     authText.style.opacity = '';
@@ -208,7 +210,8 @@ async function searchMails(isSilent = false) {
         resultsContainer.innerHTML = '';
         renderedMessageIds.clear();
         latestSeenInternalDate = 0;
-        document.getElementById('liveStatus').style.display = 'none';
+        const live = document.getElementById('liveStatus');
+        if (live) live.classList.remove('is-live');
     } else {
         // Silent polling must also lock to avoid overlapping requests
         isSearching = true;
@@ -257,7 +260,7 @@ async function searchMails(isSilent = false) {
 function startPolling() {
     if (pollingInterval) clearInterval(pollingInterval);
     const live = document.getElementById('liveStatus');
-    if (live) live.style.display = 'inline-flex';
+    if (live) live.classList.add('is-live');
     pollingInterval = setInterval(() => {
         const filter = filterInput.value.trim();
         if (filter && !isSearching) searchMails(true);
@@ -660,7 +663,13 @@ function updateResultsMaxInfo(maxValue) {
 function normalizeMaxResultsInput() {
     const maxResultsInput = document.getElementById('maxResultsInput');
     if (!maxResultsInput) return MAX_RESULTS_CAP;
-    const parsed = parseInt(maxResultsInput.value || MAX_RESULTS_CAP, 10);
+    const rawValue = (maxResultsInput.value || '').trim();
+    if (!rawValue) {
+        updateResultsMaxInfo(MAX_RESULTS_CAP);
+        return MAX_RESULTS_CAP;
+    }
+
+    const parsed = parseInt(rawValue, 10);
     const normalized = Math.min(MAX_RESULTS_CAP, Math.max(1, Number.isNaN(parsed) ? MAX_RESULTS_CAP : parsed));
     maxResultsInput.value = String(normalized);
     updateResultsMaxInfo(normalized);
@@ -764,7 +773,9 @@ document.addEventListener('DOMContentLoaded', () => {
         updateClearFilterVisibility();
     }
     if (maxResultsInput) {
-        maxResultsInput.addEventListener('input', normalizeMaxResultsInput);
+        maxResultsInput.addEventListener('input', () => updateResultsMaxInfo(maxResultsInput.value || MAX_RESULTS_CAP));
+        maxResultsInput.addEventListener('blur', normalizeMaxResultsInput);
+        maxResultsInput.addEventListener('change', normalizeMaxResultsInput);
         normalizeMaxResultsInput();
     }
     window.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
