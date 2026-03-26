@@ -424,6 +424,24 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         }
     }
 
+    const isAmazonLoginAlert = /amazon/i.test(from) && /inicio de sesi[oó]n/i.test(subject);
+    if (isAmazonLoginAlert) {
+        const dateMatch = searchContext.match(/Fecha:\s*([^|]+?)(?=\s+Dispositivo:|$)/i);
+        const deviceMatch = searchContext.match(/Dispositivo:\s*([^|]+?)(?=\s+Cerca de:|$)/i);
+        const locationMatch = searchContext.match(/Cerca de:\s*([^|]+?)(?=\s+Si fuiste t[uú]|$)/i);
+        const summaryParts = [];
+
+        if (dateMatch) summaryParts.push(`<strong>${dateMatch[1].trim()}</strong>`);
+        if (deviceMatch) summaryParts.push(deviceMatch[1].trim());
+        if (locationMatch) summaryParts.push(locationMatch[1].trim());
+
+        if (summaryParts.length > 0) {
+            displaySnippet = `Inicio detectado: ${summaryParts.join(' · ')}`;
+        } else {
+            displaySnippet = `Inicio detectado: <strong>Revisa la alerta de Amazon</strong>`;
+        }
+    }
+
     // Fallback: If snippet is empty or looks like placeholder, show full sender address
     let useFromAction = false;
     const cleanSnippet = displaySnippet.replace(/&nbsp;/g, ' ').trim();
@@ -433,6 +451,10 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
     }
 
     let mainAction = findMainAction(content, isHtml);
+
+    if (isAmazonLoginAlert) {
+        mainAction = null;
+    }
 
     // If body was empty, force a "Copy Email" action
     if (useFromAction && !mainAction) {
