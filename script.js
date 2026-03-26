@@ -8,7 +8,7 @@ const HARDCODED_CLIENT_ID = '357370160811-p0fvc37cgrr5385olh07da3249pm8hl0.apps.
 const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 const SK_ACCESS = 'query_access_token';
 const SK_EXPIRY = 'query_token_expiry';
-const MAX_RESULTS_CAP = 5;
+const DEFAULT_MAX_RESULTS = 5;
 const POLLING_INTERVAL_MS = 2 * 1000;
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
@@ -338,8 +338,8 @@ async function searchMails(isSilent = false) {
 
     try {
         const maxInput = document.getElementById('maxResultsInput');
-        const rawMax = parseInt(maxInput?.value || MAX_RESULTS_CAP, 10);
-        const maxLimit = Math.min(MAX_RESULTS_CAP, Math.max(1, Number.isNaN(rawMax) ? MAX_RESULTS_CAP : rawMax));
+        const rawMax = parseInt(maxInput?.value || DEFAULT_MAX_RESULTS, 10);
+        const maxLimit = Math.max(1, Number.isNaN(rawMax) ? DEFAULT_MAX_RESULTS : rawMax);
         if (maxInput) maxInput.value = String(maxLimit);
         const query = encodeURIComponent(`${filter}`);
         updateResultsMaxInfo(maxLimit);
@@ -786,17 +786,25 @@ function updateResultsMaxInfo(maxValue) {
 
 function normalizeMaxResultsInput() {
     const maxResultsInput = document.getElementById('maxResultsInput');
-    if (!maxResultsInput) return MAX_RESULTS_CAP;
+    if (!maxResultsInput) return DEFAULT_MAX_RESULTS;
     const rawValue = (maxResultsInput.value || '').trim();
     if (!rawValue) {
-        updateResultsMaxInfo(MAX_RESULTS_CAP);
-        return MAX_RESULTS_CAP;
+        updateResultsMaxInfo(DEFAULT_MAX_RESULTS);
+        return DEFAULT_MAX_RESULTS;
     }
 
     const parsed = parseInt(rawValue, 10);
-    const normalized = Math.min(MAX_RESULTS_CAP, Math.max(1, Number.isNaN(parsed) ? MAX_RESULTS_CAP : parsed));
+    const normalized = Math.max(1, Number.isNaN(parsed) ? DEFAULT_MAX_RESULTS : parsed);
     maxResultsInput.value = String(normalized);
     updateResultsMaxInfo(normalized);
+    return normalized;
+}
+
+function applyMaxResultsChange() {
+    const normalized = normalizeMaxResultsInput();
+    if (filterInput && filterInput.value.trim() && !isSearching) {
+        searchMails();
+    }
     return normalized;
 }
 
@@ -897,9 +905,9 @@ document.addEventListener('DOMContentLoaded', () => {
         updateClearFilterVisibility();
     }
     if (maxResultsInput) {
-        maxResultsInput.addEventListener('input', () => updateResultsMaxInfo(maxResultsInput.value || MAX_RESULTS_CAP));
+        maxResultsInput.addEventListener('input', () => updateResultsMaxInfo(maxResultsInput.value || DEFAULT_MAX_RESULTS));
         maxResultsInput.addEventListener('blur', normalizeMaxResultsInput);
-        maxResultsInput.addEventListener('change', normalizeMaxResultsInput);
+        maxResultsInput.addEventListener('change', applyMaxResultsChange);
         normalizeMaxResultsInput();
     }
     window.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
