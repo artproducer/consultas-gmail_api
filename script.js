@@ -4,54 +4,151 @@
  */
 
 // ─── CONFIGURATION ───────────────────────────────────────────────────────────
+const HARDCODED_CLIENT_ID = '';
+const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
+const SK_ACCESS = 'query_access_token';
+const SK_EXPIRY = 'query_token_expiry';
 const MAX_RESULTS_CAP = 5;
 const POLLING_INTERVAL_MS = 2 * 1000;
-const AUTH_START_ENDPOINT = '/.netlify/functions/google-auth-start';
-const SESSION_ENDPOINT = '/.netlify/functions/google-session';
-const SEARCH_ENDPOINT = '/.netlify/functions/gmail-search';
-const LOGOUT_ENDPOINT = '/.netlify/functions/google-logout';
-const AUTH_MESSAGE_TYPE = 'google-auth-finished';
+const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
+let accessToken = null;
+let tokenClient = null;
+let tokenExpiry = 0;
+let tokenRefreshTimer = null;
 let sessionProfile = null;
 let isSearching = false;
 let pollingInterval = null;
 let renderedMessageIds = new Set();
 let latestSeenInternalDate = 0;
 let defaultAuthBtnHtml = '';
-let authPopup = null;
-let authPopupPoll = null;
 
 // DOM Cache
 let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn;
 
-// AUTHENTICATION (NETLIFY)
-function isAuthed() {
-    return !!(sessionProfile && sessionProfile.email);
+// AUTHENTICATION (GOOGLE IDENTITY SERVICES)
+function getClientId() {
+    return HARDCODED_CLIENT_ID.trim();
 }
 
-function startAuth() {
-    if (isAuthed()) return;
-    const width = 520;
-    const height = 720;
-    const left = Math.max(0, Math.round(window.screenX + ((window.outerWidth - width) / 2)));
-    const top = Math.max(0, Math.round(window.screenY + ((window.outerHeight - height) / 2)));
-    const features = `width=${width},height=${height},left=${left},top=${top},popup=yes,resizable=yes,scrollbars=yes`;
+function isAuthed() {
+    return !!accessToken && tokenExpiry > Date.now();
+}
 
-    authPopup = window.open(AUTH_START_ENDPOINT, 'google-auth-popup', features);
+function clearStoredToken() {
+    accessToken = null;
+    tokenExpiry = 0;
+    localStorage.removeItem(SK_ACCESS);
+    localStorage.removeItem(SK_EXPIRY);
+    if (tokenRefreshTimer) {
+        window.clearTimeout(tokenRefreshTimer);
+        tokenRefreshTimer = null;
+    }
+}
 
-    if (!authPopup) {
-        window.location.href = AUTH_START_ENDPOINT;
-        return;
+function restoreStoredToken() {
+    const storedToken = localStorage.getItem(SK_ACCESS);
+    const storedExpiry = parseInt(localStorage.getItem(SK_EXPIRY) || '0', 10);
+    if (!storedToken || !storedExpiry || storedExpiry <= Date.now()) {
+        clearStoredToken();
+        return false;
     }
 
-    if (authPopupPoll) window.clearInterval(authPopupPoll);
-    authPopupPoll = window.setInterval(() => {
-        if (!authPopup || authPopup.closed) {
-            window.clearInterval(authPopupPoll);
-            authPopupPoll = null;
-            authPopup = null;
+    accessToken = storedToken;
+    tokenExpiry = storedExpiry;
+    scheduleTokenRefresh();
+    return true;
+}
+
+function scheduleTokenRefresh() {
+    if (tokenRefreshTimer) window.clearTimeout(tokenRefreshTimer);
+    if (!accessToken || !tokenExpiry) return;
+
+    const refreshIn = Math.max(15000, tokenExpiry - Date.now() - TOKEN_REFRESH_BUFFER_MS);
+    tokenRefreshTimer = window.setTimeout(async () => {
+        try {
+            await ensureAccessToken(false);
+        } catch (_) {
+            clearStoredToken();
+            onLoggedOut();
         }
-    }, 500);
+    }, refreshIn);
+}
+
+function persistToken(response) {
+    accessToken = response.access_token;
+    tokenExpiry = Date.now() + ((response.expires_in || 3600) * 1000);
+    localStorage.setItem(SK_ACCESS, accessToken);
+    localStorage.setItem(SK_EXPIRY, String(tokenExpiry));
+    scheduleTokenRefresh();
+}
+
+async function waitForGoogleIdentity(maxAttempts = 40) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (window.google && window.google.accounts && window.google.accounts.oauth2) return true;
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+    return false;
+}
+
+async function initTokenClient() {
+    if (tokenClient) return true;
+    if (!getClientId()) throw new Error('Configura HARDCODED_CLIENT_ID en script.js para GitHub Pages.');
+
+    const loaded = await waitForGoogleIdentity();
+    if (!loaded) throw new Error('Google Identity Services no carg� a tiempo.');
+
+    tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: getClientId(),
+        scope: SCOPE,
+        callback: () => {},
+        error_callback: () => {}
+    });
+    return true;
+}
+
+async function requestAccessToken(promptValue) {
+    await initTokenClient();
+
+    return new Promise((resolve, reject) => {
+        tokenClient.callback = (response) => {
+            if (response.error) {
+                const error = new Error(response.error);
+                error.data = response;
+                reject(error);
+                return;
+            }
+            persistToken(response);
+            resolve(response);
+        };
+
+        tokenClient.error_callback = (error) => {
+            reject(new Error(error.type || 'popup_error'));
+        };
+
+        tokenClient.requestAccessToken({ prompt: promptValue });
+    });
+}
+
+async function loadConnectedUserProfile() {
+    if (!accessToken) return null;
+
+    try {
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!res.ok) throw new Error('profile_error');
+        const data = await res.json();
+        sessionProfile = {
+            email: data.email || '',
+            picture: data.picture || '',
+            name: data.name || ''
+        };
+        return sessionProfile;
+    } catch (_) {
+        sessionProfile = sessionProfile || { email: 'connected' };
+        return sessionProfile;
+    }
 }
 
 function renderAuthStatus(isConnected) {
@@ -117,9 +214,19 @@ function setAuthAvatar(photoUrl) {
 }
 
 async function apiFetchJson(url, options = {}) {
+    const hasToken = await ensureAccessToken(false);
+    if (!hasToken) {
+        const err = new Error('Sesion expirada. Inicia sesion de nuevo.');
+        err.status = 401;
+        throw err;
+    }
+
+    const headers = new Headers(options.headers || {});
+    headers.set('Authorization', `Bearer ${accessToken}`);
+
     const res = await fetch(url, {
-        credentials: 'same-origin',
-        ...options
+        ...options,
+        headers
     });
 
     let data = null;
@@ -130,7 +237,7 @@ async function apiFetchJson(url, options = {}) {
     }
 
     if (!res.ok) {
-        const err = new Error((data && data.message) || 'Error en la solicitud');
+        const err = new Error((data && (data.message || data.error?.message)) || 'Error en la solicitud');
         err.status = res.status;
         err.data = data;
         throw err;
@@ -139,52 +246,57 @@ async function apiFetchJson(url, options = {}) {
     return data;
 }
 
-async function ensureSession() {
+async function ensureAccessToken(interactive = false) {
+    if (isAuthed() && tokenExpiry > Date.now() + TOKEN_REFRESH_BUFFER_MS) return true;
+    if (restoreStoredToken() && tokenExpiry > Date.now() + TOKEN_REFRESH_BUFFER_MS) return true;
+
     try {
-        const data = await apiFetchJson(SESSION_ENDPOINT);
-        if (data && data.authenticated) {
-            onAuthed(data.profile || null);
-            return true;
-        }
+        await requestAccessToken(interactive ? 'consent' : '');
+        await loadConnectedUserProfile();
+        onAuthed(sessionProfile);
+        return true;
     } catch (_) {
-        // Fallback below.
+        if (!interactive) clearStoredToken();
+        return false;
     }
+}
+
+async function ensureSession() {
+    if (restoreStoredToken()) {
+        await loadConnectedUserProfile();
+        onAuthed(sessionProfile);
+        return true;
+    }
+
+    const refreshed = await ensureAccessToken(false);
+    if (refreshed) return true;
 
     onLoggedOut();
     return false;
 }
 
-async function handleAuthPopupMessage(event) {
-    if (event.origin !== window.location.origin) return;
-    if (!event.data || event.data.type !== AUTH_MESSAGE_TYPE) return;
-
-    if (authPopupPoll) {
-        window.clearInterval(authPopupPoll);
-        authPopupPoll = null;
-    }
-    authPopup = null;
-
-    if (event.data.status === 'connected') {
-        const hasSession = await ensureSession();
-        if (hasSession) showToast('Sesion conectada', 'success');
+async function startAuth() {
+    if (isAuthed()) return;
+    const connected = await ensureAccessToken(true);
+    if (connected) {
+        showToast('Sesion conectada', 'success');
         return;
     }
-
     showToast('No se pudo conectar con Google', 'error');
 }
 
 async function logout() {
-    try {
-        await fetch(LOGOUT_ENDPOINT, {
-            method: 'POST',
-            credentials: 'same-origin'
-        });
-    } catch (_) {
-        // Best effort logout.
+    const tokenToRevoke = accessToken;
+    clearStoredToken();
+    sessionProfile = null;
+
+    if (window.google && google.accounts && google.accounts.oauth2 && tokenToRevoke) {
+        google.accounts.oauth2.revoke(tokenToRevoke, () => location.reload());
+        return;
     }
+
     location.reload();
 }
-
 // ─── SEARCH & RENDER ─────────────────────────────────────────────────────────
 
 async function searchMails(isSilent = false) {
@@ -224,7 +336,7 @@ async function searchMails(isSilent = false) {
         if (maxInput) maxInput.value = String(maxLimit);
         const query = encodeURIComponent(`${filter}`);
         updateResultsMaxInfo(maxLimit);
-        const listData = await apiFetchJson(`${SEARCH_ENDPOINT}?q=${query}&maxResults=${maxLimit}`);
+        const listData = await apiFetchJson(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=${maxLimit}`);
 
         if (!listData.messages || listData.messages.length === 0) {
             if (!isSilent) {
@@ -238,9 +350,14 @@ async function searchMails(isSilent = false) {
         }
 
         const newBatch = listData.messages.filter(m => !renderedMessageIds.has(m.id)).reverse();
+        const detailedMessages = await Promise.all(
+            newBatch.map((message) =>
+                apiFetchJson(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`)
+            )
+        );
 
-        for (let i = 0; i < newBatch.length; i++) {
-            const data = newBatch[i];
+        for (let i = 0; i < detailedMessages.length; i++) {
+            const data = detailedMessages[i];
             const msgInternalDate = Number(data.internalDate || 0);
             const shouldHighlightNew = isSilent && msgInternalDate > latestSeenInternalDate;
             latestSeenInternalDate = Math.max(latestSeenInternalDate, msgInternalDate);
@@ -779,18 +896,15 @@ document.addEventListener('DOMContentLoaded', () => {
         normalizeMaxResultsInput();
     }
     window.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
-    window.addEventListener('message', handleAuthPopupMessage);
+    window.addEventListener('focus', () => {
+        ensureSession();
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') ensureSession();
+    });
     updateBackToTopVisibility();
 
     ensureSession();
-
-    const params = new URLSearchParams(window.location.search);
-    const authState = params.get('auth');
-    if (authState === 'connected') showToast('Sesion conectada', 'success');
-    if (authState === 'error') showToast('No se pudo conectar con Google', 'error');
-    if (authState) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-    }
 });
 // Helper for UI paste
 window.pasteFromClipboard = function () {
@@ -828,3 +942,4 @@ document.getElementById('filterEmail').addEventListener('paste', () => {
         }
     }, 100);
 });
+
