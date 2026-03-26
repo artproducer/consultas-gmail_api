@@ -22,7 +22,7 @@ let authPopup = null;
 let authPopupPoll = null;
 
 // DOM Cache
-let resultsContainer, loader, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn;
+let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn;
 
 // AUTHENTICATION (NETLIFY)
 function isAuthed() {
@@ -693,7 +693,6 @@ function copyToClipboard(text, successMsg) {
 
 function setLoading(on) {
     isSearching = on;
-    loader.style.display = on ? 'flex' : 'none';
     submitBtn.disabled = on;
     submitBtn.classList.toggle('is-loading', on);
 }
@@ -710,7 +709,6 @@ function showToast(text, type = 'error') {
 document.addEventListener('DOMContentLoaded', () => {
     // Cache DOM
     resultsContainer = document.getElementById('resultsContainer');
-    loader = document.getElementById('loader');
     submitBtn = document.getElementById('submitBtn');
     filterInput = document.getElementById('filterEmail');
     authBtn = document.getElementById('authBtn');
