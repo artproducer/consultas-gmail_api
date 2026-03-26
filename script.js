@@ -415,6 +415,15 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         }
     }
 
+    if (!displaySnippet.includes('Inicio detectado') && !displaySnippet.includes('Verificando')) {
+        const removedFromPlanMatch = searchContext.match(/([^\s|]+@[^\s|]+)\s+te ha quitado de su plan/i);
+        if (lowerSub.includes('suscripci') && lowerSub.includes('termin') && removedFromPlanMatch) {
+            displaySnippet = `Sin acceso: <strong>${removedFromPlanMatch[1].trim()}</strong> te quitó del plan`;
+        } else if (lowerSub.includes('suscripci') && lowerSub.includes('termin')) {
+            displaySnippet = `Suscripción terminada: <strong>Configura tu propio plan</strong>`;
+        }
+    }
+
     // Fallback: If snippet is empty or looks like placeholder, show full sender address
     let useFromAction = false;
     const cleanSnippet = displaySnippet.replace(/&nbsp;/g, ' ').trim();
@@ -461,6 +470,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         const isCreate = mainAction.label === 'CREAR CUENTA';
         const isApprove = mainAction.label === 'APROBAR INICIO';
         const isRequest = mainAction.label === 'SOLICITAR CÓDIGO';
+        const isFirstSteps = mainAction.label === 'PRIMEROS PASOS';
         const isCopy = mainAction.isCopyEmail;
 
         let btnColor = 'var(--green)';
@@ -468,7 +478,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         let txtColor = '#000';
         let clickAction = `event.stopPropagation()`;
 
-        if (mainAction.label === 'SÍ, LO SOLICITÉ YO' || mainAction.label === 'ACEPTAR INVITACIÓN' || isCreate || isApprove || isRequest) {
+        if (mainAction.label === 'SÍ, LO SOLICITÉ YO' || mainAction.label === 'ACEPTAR INVITACIÓN' || isCreate || isApprove || isRequest || isFirstSteps) {
             btnColor = '#e50914'; // Netflix Red
             btnShadow = 'rgba(229,9,20,0.4)';
         } else if (isProtection) {
@@ -642,6 +652,7 @@ function findMainAction(content, isHtml) {
         { label: 'APROBAR INICIO', regex: /aprobar inicio|aprobar acceso|approve login/i },
         { label: 'VERIFICAR CUENTA', regex: /verificar cuenta|confirmar correo|verificar correo electr[oó]nico|verify account|confirm email/i },
         { label: 'ACEPTAR INVITACIÓN', regex: /comenzar|unirse|aceptar invitaci[oó]n|get started/i },
+        { label: 'PRIMEROS PASOS', regex: /primeros pasos|first steps/i },
         { label: 'INICIAR SESIÓN', regex: /inicia[r]? sesi[oó]n|log[ -]?in|acceder|sign[ -]?in|mi cuenta/i },
         { label: 'CREAR CUENTA', regex: /crea[r]? cuenta|iniciar mi membres[ií]a|sign[ -]?up|create account/i },
         { label: 'SOLICITAR CÓDIGO', regex: /solicitar c[oó]digo|get code|enviar c[oó]digo/i },
