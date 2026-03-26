@@ -4,7 +4,7 @@
  */
 
 // ─── CONFIGURATION ───────────────────────────────────────────────────────────
-const HARDCODED_CLIENT_ID = '';
+const HARDCODED_CLIENT_ID = '357370160811-p0fvc37cgrr5385olh07da3249pm8hl0.apps.googleusercontent.com';
 const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 const SK_ACCESS = 'query_access_token';
 const SK_EXPIRY = 'query_token_expiry';
