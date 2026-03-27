@@ -422,6 +422,17 @@ input[type="email"]:focus {
     padding: 0 24px;
 }
 
+.search-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 14px;
+    align-items: stretch;
+}
+
+.search-actions > button {
+    flex: 1;
+}
+
 .btn-submit {
     width: 100%;
     margin-top: 14px;
@@ -441,6 +452,34 @@ input[type="email"]:focus {
     transition: all 0.2s;
     text-transform: uppercase;
     letter-spacing: 0.03em;
+}
+
+.btn-secondary {
+    height: 52px;
+    padding: 0 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    border: 1px solid rgba(239, 68, 68, 0.22);
+    background: rgba(239, 68, 68, 0.08);
+    color: #ffd5d5;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, transform 0.2s;
+}
+
+.btn-secondary:hover {
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.32);
+    transform: translateY(-1px);
+}
+
+.btn-secondary:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .btn-submit-label {
@@ -861,6 +900,7 @@ input[type="email"]:focus {
     .email-subject { font-size: 0.9rem; }
     .email-snippet { font-size: 0.75rem; }
     .btn-submit { padding: 12px; font-size: 0.9rem; }
+    .search-actions { flex-direction: column; }
     input[type="email"] { padding: 11px 72px 11px 12px; font-size: 0.85rem; }
     .max-control { height: 28px; padding: 3px 7px; }
     #maxResultsInput { width: 42px; font-size: 0.75rem; }

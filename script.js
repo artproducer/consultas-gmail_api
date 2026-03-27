@@ -23,6 +23,7 @@ let pollingInterval = null;
 let renderedMessageIds = new Set();
 let latestSeenInternalDate = 0;
 let defaultAuthBtnHtml = '';
+let activeSearchController = null;
 
 // DOM Cache
 let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn;
@@ -190,9 +191,10 @@ function onAuthed(profile = null) {
 
 function onLoggedOut() {
     sessionProfile = null;
-    if (pollingInterval) clearInterval(pollingInterval);
-    const live = document.getElementById('liveStatus');
-    if (live) live.classList.remove('is-live');
+    stopPolling();
+    abortActiveSearch();
+    resetSearchResults();
+    setLoading(false);
     const card = document.getElementById('authCard');
     card.classList.remove('connected');
     authText.style.opacity = '';
@@ -310,7 +312,11 @@ async function searchMails(isSilent = false) {
     if (isSearching) return;
 
     const filter = filterInput.value.trim();
-    if (!filter) return;
+    if (!filter) {
+        stopPolling();
+        if (!isSilent) resetSearchResults();
+        return;
+    }
 
     if (!isAuthed()) {
         const hasSession = await ensureSession();
@@ -323,14 +329,13 @@ async function searchMails(isSilent = false) {
         }
     }
 
+    const requestController = new AbortController();
+    activeSearchController = requestController;
+
     if (!isSilent) {
-        if (pollingInterval) clearInterval(pollingInterval);
+        stopPolling();
         setLoading(true);
-        resultsContainer.innerHTML = '';
-        renderedMessageIds.clear();
-        latestSeenInternalDate = 0;
-        const live = document.getElementById('liveStatus');
-        if (live) live.classList.remove('is-live');
+        resetSearchResults();
     } else {
         // Silent polling must also lock to avoid overlapping requests
         isSearching = true;
@@ -343,7 +348,10 @@ async function searchMails(isSilent = false) {
         if (maxInput) maxInput.value = String(maxLimit);
         const query = encodeURIComponent(`${filter}`);
         updateResultsMaxInfo(maxLimit);
-        const listData = await apiFetchJson(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=${maxLimit}`);
+        const listData = await apiFetchJson(
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=${maxLimit}`,
+            { signal: requestController.signal }
+        );
 
         if (!listData.messages || listData.messages.length === 0) {
             if (!isSilent) {
@@ -359,9 +367,14 @@ async function searchMails(isSilent = false) {
         const newBatch = listData.messages.filter(m => !renderedMessageIds.has(m.id)).reverse();
         const detailedMessages = await Promise.all(
             newBatch.map((message) =>
-                apiFetchJson(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`)
+                apiFetchJson(
+                    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`,
+                    { signal: requestController.signal }
+                )
             )
         );
+
+        if (requestController.signal.aborted || filterInput.value.trim() !== filter) return;
 
         for (let i = 0; i < detailedMessages.length; i++) {
             const data = detailedMessages[i];
@@ -373,16 +386,21 @@ async function searchMails(isSilent = false) {
         }
 
     } catch (err) {
+        if (err.name === 'AbortError') return;
         if (err.status === 401) onLoggedOut();
         if (!isSilent) showToast(err.message, 'error');
     } finally {
+        if (activeSearchController === requestController) {
+            activeSearchController = null;
+        }
         if (!isSilent) setLoading(false);
         else isSearching = false;
-        if (!isSilent) startPolling();
+        if (!isSilent && filterInput.value.trim()) startPolling();
     }
 }
 function startPolling() {
-    if (pollingInterval) clearInterval(pollingInterval);
+    stopPolling();
+    if (!filterInput || !filterInput.value.trim()) return;
     const live = document.getElementById('liveStatus');
     if (live) live.classList.add('is-live');
     pollingInterval = setInterval(() => {
@@ -866,9 +884,31 @@ function copyToClipboard(text, successMsg) {
 }
 
 function setLoading(on) {
+    if (!submitBtn) return;
     isSearching = on;
     submitBtn.disabled = on;
     submitBtn.classList.toggle('is-loading', on);
+}
+
+function stopPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+    }
+    const live = document.getElementById('liveStatus');
+    if (live) live.classList.remove('is-live');
+}
+
+function abortActiveSearch() {
+    if (!activeSearchController) return;
+    activeSearchController.abort();
+    activeSearchController = null;
+}
+
+function resetSearchResults() {
+    if (resultsContainer) resultsContainer.innerHTML = '';
+    renderedMessageIds.clear();
+    latestSeenInternalDate = 0;
 }
 
 function showToast(text, type = 'error') {
@@ -940,6 +980,17 @@ window.clearFilterInput = function () {
     filterInput.value = '';
     filterInput.focus();
     updateClearFilterVisibility();
+};
+
+window.clearMailSearch = function () {
+    abortActiveSearch();
+    stopPolling();
+    resetSearchResults();
+    setLoading(false);
+    filterInput.value = '';
+    filterInput.focus();
+    updateClearFilterVisibility();
+    showToast('Correos limpiados', 'success');
 };
 
 function updateClearFilterVisibility() {

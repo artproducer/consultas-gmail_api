@@ -41,14 +41,19 @@
                             </span>
                         </div>
                     </div>
-                    <button type="submit" class="btn-submit" id="submitBtn">
-                        <span class="btn-submit-label">Buscar Correos</span>
-                        <span class="btn-submit-loader" aria-hidden="true">
-                            <span class="btn-submit-dot"></span>
-                            <span class="btn-submit-dot"></span>
-                            <span class="btn-submit-dot"></span>
-                        </span>
-                    </button>
+                    <div class="search-actions">
+                        <button type="submit" class="btn-submit" id="submitBtn">
+                            <span class="btn-submit-label">Buscar Correos</span>
+                            <span class="btn-submit-loader" aria-hidden="true">
+                                <span class="btn-submit-dot"></span>
+                                <span class="btn-submit-dot"></span>
+                                <span class="btn-submit-dot"></span>
+                            </span>
+                        </button>
+                        <button type="button" class="btn-secondary" id="clearMailBtn" onclick="clearMailSearch()">
+                            Limpiar
+                        </button>
+                    </div>
                 </form>
             </div>
 
