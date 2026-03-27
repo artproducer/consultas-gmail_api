@@ -899,8 +899,38 @@ input[type="email"]:focus {
     .email-item { padding: 14px; border-radius: 14px; }
     .email-subject { font-size: 0.9rem; }
     .email-snippet { font-size: 0.75rem; }
-    .btn-submit { padding: 12px; font-size: 0.9rem; }
-    .search-actions { flex-direction: column; }
+    .search-actions {
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 12px;
+    }
+    #searchForm .btn-submit,
+    .btn-secondary {
+        width: 100%;
+        min-width: 0;
+        height: 44px;
+        margin-top: 0;
+        border-radius: 12px;
+        font-size: 0.82rem;
+        letter-spacing: 0.02em;
+    }
+    .btn-submit {
+        padding: 0 16px;
+        box-shadow: 0 3px 14px rgba(18, 140, 126, 0.22);
+    }
+    .btn-submit-label {
+        justify-content: center;
+        width: 100%;
+    }
+    .btn-secondary {
+        padding: 0 16px;
+        color: #f2caca;
+        background: rgba(120, 38, 38, 0.22);
+        border-color: rgba(185, 78, 78, 0.3);
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: none;
+    }
     input[type="email"] { padding: 11px 72px 11px 12px; font-size: 0.85rem; }
     .max-control { height: 28px; padding: 3px 7px; }
     #maxResultsInput { width: 42px; font-size: 0.75rem; }
@@ -915,6 +945,8 @@ input[type="email"]:focus {
     .wrap { gap: 10px; }
     .header h1 { font-size: 1.1rem; }
     .card { padding: 12px; }
+    #searchForm .btn-submit,
+    .btn-secondary { height: 42px; font-size: 0.76rem; }
     .email-meta { flex-wrap: wrap; gap: 8px; }
     .msg-body { font-size: 0.8rem; padding: 10px 12px 14px; }
     .msg-frame-shell { width: calc(100% - 6px); }
