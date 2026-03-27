@@ -900,19 +900,26 @@ input[type="email"]:focus {
     .email-subject { font-size: 0.9rem; }
     .email-snippet { font-size: 0.75rem; }
     .search-actions {
-        flex-direction: column;
-        gap: 10px;
+        flex-direction: row;
+        gap: 8px;
         margin-top: 12px;
+        align-items: center;
     }
     #searchForm .btn-submit,
     .btn-secondary {
-        width: 100%;
+        width: auto;
         min-width: 0;
         height: 44px;
         margin-top: 0;
         border-radius: 12px;
         font-size: 0.82rem;
         letter-spacing: 0.02em;
+    }
+    #searchForm .btn-submit {
+        flex: 1.2;
+    }
+    .btn-secondary {
+        flex: 0.7;
     }
     .btn-submit {
         padding: 0 16px;
