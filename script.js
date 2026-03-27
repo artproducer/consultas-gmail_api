@@ -6,7 +6,7 @@
 const SUPABASE_FUNCTIONS_BASE_URL = 'https://azqbqztbrvnpjxgizhcj.supabase.co/functions/v1';
 
 const DEFAULT_MAX_RESULTS = 5;
-const POLLING_INTERVAL_MS = 7 * 1000;
+const POLLING_INTERVAL_MS = 2 * 1000;
 const SK_SESSION_ID = 'query_backend_session_id';
 
 let sessionProfile = null;
@@ -832,7 +832,7 @@ function abortActiveSearch() {
 
 function updatePollingToggleButton() {
     if (!pollingToggleBtn) return;
-    pollingToggleBtn.textContent = pollingPaused ? 'Reanudar' : 'Pausar';
+    pollingToggleBtn.textContent = pollingPaused ? 'Pausado' : 'Monitoreando';
     pollingToggleBtn.classList.toggle('is-paused', pollingPaused);
 }
 
