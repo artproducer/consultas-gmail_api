@@ -12,6 +12,7 @@ const SK_SESSION_ID = 'query_backend_session_id';
 let sessionProfile = null;
 let isConnected = false;
 let isSearching = false;
+let pollingPaused = false;
 let pollingInterval = null;
 let renderedMessageIds = new Set();
 let latestSeenInternalDate = 0;
@@ -20,7 +21,7 @@ let defaultAuthBtnHtml = '';
 let activeSearchController = null;
 
 // DOM Cache
-let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn;
+let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn, pollingToggleBtn;
 
 // AUTHENTICATION (SUPABASE BACKEND)
 function getBackendBaseUrl() {
@@ -130,6 +131,7 @@ function onAuthed(profile = null) {
 function onLoggedOut() {
     isConnected = false;
     sessionProfile = null;
+    pollingPaused = false;
     stopPolling();
     abortActiveSearch();
     resetSearchResults();
@@ -141,6 +143,7 @@ function onLoggedOut() {
     renderAuthStatus(false);
     setAuthDefaultIcon();
     authBtn.onclick = startAuth;
+    updatePollingToggleButton();
 }
 
 function setAuthDefaultIcon() {
@@ -322,7 +325,7 @@ async function searchMails(isSilent = false) {
 
 function startPolling() {
     stopPolling();
-    if (!filterInput || !filterInput.value.trim()) return;
+    if (pollingPaused || !filterInput || !filterInput.value.trim()) return;
     const live = document.getElementById('liveStatus');
     if (live) live.classList.add('is-live');
     pollingInterval = setInterval(() => {
@@ -827,6 +830,12 @@ function abortActiveSearch() {
     activeSearchController = null;
 }
 
+function updatePollingToggleButton() {
+    if (!pollingToggleBtn) return;
+    pollingToggleBtn.textContent = pollingPaused ? 'Reanudar' : 'Pausar';
+    pollingToggleBtn.classList.toggle('is-paused', pollingPaused);
+}
+
 function resetSearchResults() {
     if (resultsContainer) resultsContainer.innerHTML = '';
     renderedMessageIds.clear();
@@ -853,11 +862,13 @@ document.addEventListener('DOMContentLoaded', () => {
     authText = document.getElementById('authStatus');
     backToTopBtn = document.getElementById('backToTopBtn');
     clearFilterBtn = document.getElementById('clearFilterBtn');
+    pollingToggleBtn = document.getElementById('pollingToggleBtn');
     const maxResultsInput = document.getElementById('maxResultsInput');
 
     renderAuthStatus(false);
     authBtn.onclick = startAuth;
     handleAuthRedirectFeedback();
+    updatePollingToggleButton();
 
     if (backToTopBtn) {
         backToTopBtn.addEventListener('click', () => {
@@ -906,15 +917,18 @@ window.clearFilterInput = function () {
     updateClearFilterVisibility();
 };
 
-window.clearMailSearch = function () {
-    abortActiveSearch();
-    stopPolling();
-    resetSearchResults();
-    setLoading(false);
-    filterInput.value = '';
-    filterInput.focus();
-    updateClearFilterVisibility();
-    showToast('Correos limpiados', 'success');
+window.togglePolling = function () {
+    pollingPaused = !pollingPaused;
+    if (pollingPaused) {
+        stopPolling();
+        showToast('Actualizacion pausada', 'success');
+    } else {
+        if (filterInput.value.trim() && !isSearching) {
+            startPolling();
+        }
+        showToast('Actualizacion reanudada', 'success');
+    }
+    updatePollingToggleButton();
 };
 
 function updateClearFilterVisibility() {
