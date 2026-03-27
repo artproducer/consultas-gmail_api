@@ -234,6 +234,10 @@ async function searchMails(isSilent = false) {
         return;
     }
 
+    if (!isSilent && filter !== lastLoadedFilter) {
+        resumeMonitoringState();
+    }
+
     if (!isAuthed()) {
         const hasSession = await ensureSession(!isSilent);
         if (!hasSession) {
@@ -836,6 +840,12 @@ function updatePollingToggleButton() {
     pollingToggleBtn.classList.toggle('is-paused', pollingPaused);
 }
 
+function resumeMonitoringState() {
+    if (!pollingPaused) return;
+    pollingPaused = false;
+    updatePollingToggleButton();
+}
+
 function resetSearchResults() {
     if (resultsContainer) resultsContainer.innerHTML = '';
     renderedMessageIds.clear();
@@ -876,7 +886,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     if (filterInput && clearFilterBtn) {
-        filterInput.addEventListener('input', updateClearFilterVisibility);
+        filterInput.addEventListener('input', () => {
+            updateClearFilterVisibility();
+            if (filterInput.value.trim() && filterInput.value.trim() !== lastLoadedFilter) {
+                resumeMonitoringState();
+            }
+        });
         updateClearFilterVisibility();
     }
     if (maxResultsInput) {
@@ -912,6 +927,11 @@ window.pasteFromClipboard = function () {
 };
 
 window.clearFilterInput = function () {
+    abortActiveSearch();
+    stopPolling();
+    resetSearchResults();
+    resumeMonitoringState();
+    setLoading(false);
     filterInput.value = '';
     filterInput.focus();
     updateClearFilterVisibility();
