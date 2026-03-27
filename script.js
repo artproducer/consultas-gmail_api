@@ -1,23 +1,16 @@
-/**
+﻿/**
  * GMAIL QUERY TOOL - SCRIPT
- * Manages OAuth flow and Gmail API searching / rendering.
+ * Frontend that authenticates through a Supabase backend and renders Gmail results.
  */
 
-// ─── CONFIGURATION ───────────────────────────────────────────────────────────
-const HARDCODED_CLIENT_ID = '357370160811-p0fvc37cgrr5385olh07da3249pm8hl0.apps.googleusercontent.com';
-const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
-const SK_ACCESS = 'query_access_token';
-const SK_EXPIRY = 'query_token_expiry';
+const SUPABASE_FUNCTIONS_BASE_URL = 'https://azqbqztbrvnpjxgizhcj.supabase.co/functions/v1';
+
 const DEFAULT_MAX_RESULTS = 5;
 const POLLING_INTERVAL_MS = 2 * 1000;
-const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+const SK_SESSION_ID = 'query_backend_session_id';
 
-let accessToken = null;
-let tokenClient = null;
-let tokenExpiry = 0;
-let tokenRefreshTimer = null;
-let lastAuthError = '';
 let sessionProfile = null;
+let isConnected = false;
 let isSearching = false;
 let pollingInterval = null;
 let renderedMessageIds = new Set();
@@ -28,140 +21,83 @@ let activeSearchController = null;
 // DOM Cache
 let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn;
 
-// AUTHENTICATION (GOOGLE IDENTITY SERVICES)
-function getClientId() {
-    return HARDCODED_CLIENT_ID.trim();
+// AUTHENTICATION (SUPABASE BACKEND)
+function getBackendBaseUrl() {
+    const base = SUPABASE_FUNCTIONS_BASE_URL.trim().replace(/\/+$/, '');
+    if (!base || base.includes('YOUR_PROJECT_REF')) {
+        throw new Error('Configura SUPABASE_FUNCTIONS_BASE_URL en script.js');
+    }
+    return base;
+}
+
+function createSessionId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+    }
+    return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getSessionId() {
+    let sessionId = localStorage.getItem(SK_SESSION_ID);
+    if (!sessionId) {
+        sessionId = createSessionId();
+        localStorage.setItem(SK_SESSION_ID, sessionId);
+    }
+    return sessionId;
 }
 
 function isAuthed() {
-    return !!accessToken && tokenExpiry > Date.now();
+    return isConnected;
 }
 
-function clearStoredToken() {
-    accessToken = null;
-    tokenExpiry = 0;
-    localStorage.removeItem(SK_ACCESS);
-    localStorage.removeItem(SK_EXPIRY);
-    if (tokenRefreshTimer) {
-        window.clearTimeout(tokenRefreshTimer);
-        tokenRefreshTimer = null;
+function getAppReturnUrl() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('gmail_connected');
+    url.searchParams.delete('gmail_error');
+    url.searchParams.delete('gmail_email');
+    url.hash = '';
+    return url.toString();
+}
+
+async function backendFetchJson(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
     }
-}
+    headers.set('x-session-id', getSessionId());
 
-function restoreStoredToken() {
-    const storedToken = localStorage.getItem(SK_ACCESS);
-    const storedExpiry = parseInt(localStorage.getItem(SK_EXPIRY) || '0', 10);
-    if (!storedToken || !storedExpiry || storedExpiry <= Date.now()) {
-        clearStoredToken();
-        return false;
-    }
-
-    accessToken = storedToken;
-    tokenExpiry = storedExpiry;
-    scheduleTokenRefresh();
-    return true;
-}
-
-function scheduleTokenRefresh() {
-    if (tokenRefreshTimer) window.clearTimeout(tokenRefreshTimer);
-    if (!accessToken || !tokenExpiry) return;
-
-    const refreshIn = Math.max(15000, tokenExpiry - Date.now() - TOKEN_REFRESH_BUFFER_MS);
-    tokenRefreshTimer = window.setTimeout(async () => {
-        try {
-            await ensureAccessToken(false);
-        } catch (_) {
-            clearStoredToken();
-            onLoggedOut();
-        }
-    }, refreshIn);
-}
-
-function persistToken(response) {
-    accessToken = response.access_token;
-    tokenExpiry = Date.now() + ((response.expires_in || 3600) * 1000);
-    localStorage.setItem(SK_ACCESS, accessToken);
-    localStorage.setItem(SK_EXPIRY, String(tokenExpiry));
-    scheduleTokenRefresh();
-}
-
-async function waitForGoogleIdentity(maxAttempts = 40) {
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        if (window.google && window.google.accounts && window.google.accounts.oauth2) return true;
-        await new Promise((resolve) => window.setTimeout(resolve, 250));
-    }
-    return false;
-}
-
-async function initTokenClient() {
-    if (tokenClient) return true;
-    if (!getClientId()) throw new Error('Configura HARDCODED_CLIENT_ID en script.js para GitHub Pages.');
-
-    const loaded = await waitForGoogleIdentity();
-    if (!loaded) throw new Error('Google Identity Services no carg� a tiempo.');
-
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: getClientId(),
-        scope: SCOPE,
-        callback: () => {},
-        error_callback: () => {}
+    const res = await fetch(`${getBackendBaseUrl()}/${path}`, {
+        ...options,
+        headers
     });
-    return true;
-}
 
-async function requestAccessToken(promptValue) {
-    await initTokenClient();
-
-    return new Promise((resolve, reject) => {
-        tokenClient.callback = (response) => {
-            if (response.error) {
-                const error = new Error(response.error);
-                error.data = response;
-                reject(error);
-                return;
-            }
-            persistToken(response);
-            resolve(response);
-        };
-
-        tokenClient.error_callback = (error) => {
-            reject(new Error(error.type || 'popup_error'));
-        };
-
-        tokenClient.requestAccessToken({ prompt: promptValue });
-    });
-}
-
-async function loadConnectedUserProfile() {
-    if (!accessToken) return null;
-
+    const text = await res.text();
+    let data = null;
     try {
-        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        if (!res.ok) throw new Error('profile_error');
-        const data = await res.json();
-        sessionProfile = {
-            email: data.email || '',
-            picture: data.picture || '',
-            name: data.name || ''
-        };
-        return sessionProfile;
+        data = text ? JSON.parse(text) : null;
     } catch (_) {
-        sessionProfile = sessionProfile || { email: 'connected' };
-        return sessionProfile;
+        data = null;
     }
+
+    if (!res.ok) {
+        const err = new Error((data && (data.message || data.error)) || text || 'Error en la solicitud');
+        err.status = res.status;
+        err.data = data;
+        throw err;
+    }
+
+    return data;
 }
 
-function renderAuthStatus(isConnected) {
+function renderAuthStatus(isSessionActive) {
     if (!authText) return;
     authText.innerHTML = '';
 
     const label = document.createElement('span');
-    label.textContent = isConnected ? 'Sesion Activa' : 'Desconectado';
+    label.textContent = isSessionActive ? (sessionProfile?.email || 'Sesion Activa') : 'Desconectado';
     authText.appendChild(label);
 
-    if (isConnected) {
+    if (isSessionActive) {
         const btn = document.createElement('button');
         btn.className = 'disconnect-btn';
         btn.textContent = 'Cerrar';
@@ -175,6 +111,7 @@ function renderAuthStatus(isConnected) {
 
 function onAuthed(profile = null) {
     if (profile) sessionProfile = profile;
+    isConnected = true;
     const card = document.getElementById('authCard');
     card.classList.add('connected');
 
@@ -190,6 +127,7 @@ function onAuthed(profile = null) {
 }
 
 function onLoggedOut() {
+    isConnected = false;
     sessionProfile = null;
     stopPolling();
     abortActiveSearch();
@@ -216,97 +154,71 @@ function setAuthAvatar(photoUrl) {
     authBtn.innerHTML = `<img class="auth-avatar" src="${photoUrl}" alt="Perfil">`;
 }
 
-async function apiFetchJson(url, options = {}) {
-    const hasToken = await ensureAccessToken(false);
-    if (!hasToken) {
-        const err = new Error('Sesion expirada. Inicia sesion de nuevo.');
-        err.status = 401;
-        throw err;
-    }
-
-    const headers = new Headers(options.headers || {});
-    headers.set('Authorization', `Bearer ${accessToken}`);
-
-    const res = await fetch(url, {
-        ...options,
-        headers
-    });
-
-    let data = null;
+async function ensureSession(showErrors = false) {
     try {
-        data = await res.json();
-    } catch (_) {
-        data = null;
-    }
-
-    if (!res.ok) {
-        const err = new Error((data && (data.message || data.error?.message)) || 'Error en la solicitud');
-        err.status = res.status;
-        err.data = data;
-        throw err;
-    }
-
-    return data;
-}
-
-async function ensureAccessToken(interactive = false) {
-    if (isAuthed() && tokenExpiry > Date.now() + TOKEN_REFRESH_BUFFER_MS) return true;
-    if (restoreStoredToken() && tokenExpiry > Date.now() + TOKEN_REFRESH_BUFFER_MS) return true;
-
-    try {
-        lastAuthError = '';
-        await requestAccessToken(interactive ? 'consent' : '');
-        await loadConnectedUserProfile();
-        onAuthed(sessionProfile);
-        return true;
+        const data = await backendFetchJson(`gmail-session?session_id=${encodeURIComponent(getSessionId())}`);
+        if (data && data.connected) {
+            onAuthed(data.profile || { email: 'connected' });
+            return true;
+        }
+        onLoggedOut();
+        return false;
     } catch (err) {
-        lastAuthError = err && err.message ? err.message : 'No se pudo conectar con Google';
-        if (!interactive) clearStoredToken();
+        onLoggedOut();
+        if (showErrors) showToast(err.message, 'error');
         return false;
     }
 }
 
-async function ensureSession() {
-    if (restoreStoredToken()) {
-        await loadConnectedUserProfile();
-        onAuthed(sessionProfile);
-        return true;
+function startAuth() {
+    try {
+        const url = new URL(`${getBackendBaseUrl()}/google-auth-start`);
+        url.searchParams.set('session_id', getSessionId());
+        url.searchParams.set('redirect_to', getAppReturnUrl());
+        window.location.href = url.toString();
+    } catch (err) {
+        showToast(err.message, 'error');
     }
-
-    const refreshed = await ensureAccessToken(false);
-    if (refreshed) return true;
-
-    onLoggedOut();
-    return false;
-}
-
-async function startAuth() {
-    if (isAuthed()) return;
-    if (!getClientId()) {
-        showToast('Falta configurar HARDCODED_CLIENT_ID', 'error');
-        return;
-    }
-    const connected = await ensureAccessToken(true);
-    if (connected) {
-        showToast('Sesion conectada', 'success');
-        return;
-    }
-    showToast(lastAuthError || 'No se pudo conectar con Google', 'error');
 }
 
 async function logout() {
-    const tokenToRevoke = accessToken;
-    clearStoredToken();
-    sessionProfile = null;
-
-    if (window.google && google.accounts && google.accounts.oauth2 && tokenToRevoke) {
-        google.accounts.oauth2.revoke(tokenToRevoke, () => location.reload());
-        return;
+    let logoutError = null;
+    try {
+        await backendFetchJson('gmail-disconnect', {
+            method: 'POST',
+            body: JSON.stringify({ sessionId: getSessionId() })
+        });
+    } catch (err) {
+        logoutError = err;
+    } finally {
+        onLoggedOut();
     }
 
-    location.reload();
+    if (logoutError) {
+        showToast(logoutError.message, 'error');
+        return;
+    }
+    showToast('Sesion cerrada', 'success');
 }
-// ─── SEARCH & RENDER ─────────────────────────────────────────────────────────
+
+function handleAuthRedirectFeedback() {
+    const url = new URL(window.location.href);
+    const connected = url.searchParams.get('gmail_connected');
+    const error = url.searchParams.get('gmail_error');
+    const email = url.searchParams.get('gmail_email');
+    if (!connected && !error) return;
+
+    if (connected === '1') {
+        showToast(email ? `Sesion conectada: ${email}` : 'Sesion conectada', 'success');
+    } else if (error) {
+        showToast(error, 'error');
+    }
+
+    url.searchParams.delete('gmail_connected');
+    url.searchParams.delete('gmail_error');
+    url.searchParams.delete('gmail_email');
+    window.history.replaceState({}, document.title, url.toString());
+}
 
 async function searchMails(isSilent = false) {
     if (isSearching) return;
@@ -319,12 +231,9 @@ async function searchMails(isSilent = false) {
     }
 
     if (!isAuthed()) {
-        const hasSession = await ensureSession();
+        const hasSession = await ensureSession(!isSilent);
         if (!hasSession) {
-            if (!isSilent) {
-                showToast('Conecta con Google primero', 'error');
-                startAuth();
-            }
+            if (!isSilent) showToast('Conecta con Google primero', 'error');
             return;
         }
     }
@@ -337,7 +246,6 @@ async function searchMails(isSilent = false) {
         setLoading(true);
         resetSearchResults();
     } else {
-        // Silent polling must also lock to avoid overlapping requests
         isSearching = true;
     }
 
@@ -346,14 +254,22 @@ async function searchMails(isSilent = false) {
         const rawMax = parseInt(maxInput?.value || DEFAULT_MAX_RESULTS, 10);
         const maxLimit = Math.max(1, Number.isNaN(rawMax) ? DEFAULT_MAX_RESULTS : rawMax);
         if (maxInput) maxInput.value = String(maxLimit);
-        const query = encodeURIComponent(`${filter}`);
         updateResultsMaxInfo(maxLimit);
-        const listData = await apiFetchJson(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=${maxLimit}`,
-            { signal: requestController.signal }
-        );
 
-        if (!listData.messages || listData.messages.length === 0) {
+        const data = await backendFetchJson('gmail-search', {
+            method: 'POST',
+            body: JSON.stringify({
+                sessionId: getSessionId(),
+                filter,
+                maxResults: maxLimit
+            }),
+            signal: requestController.signal
+        });
+
+        if (data && data.profile) onAuthed(data.profile);
+
+        const messages = Array.isArray(data?.messages) ? data.messages : [];
+        if (!messages.length) {
             if (!isSilent) {
                 resultsContainer.innerHTML = `
                     <div style="text-align:center; padding:40px; border-radius:18px; border:1px dashed var(--border);">
@@ -364,30 +280,24 @@ async function searchMails(isSilent = false) {
             return;
         }
 
-        const newBatch = listData.messages.filter(m => !renderedMessageIds.has(m.id)).reverse();
-        const detailedMessages = await Promise.all(
-            newBatch.map((message) =>
-                apiFetchJson(
-                    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`,
-                    { signal: requestController.signal }
-                )
-            )
-        );
-
+        const newBatch = messages.filter((message) => !renderedMessageIds.has(message.id)).reverse();
         if (requestController.signal.aborted || filterInput.value.trim() !== filter) return;
 
-        for (let i = 0; i < detailedMessages.length; i++) {
-            const data = detailedMessages[i];
-            const msgInternalDate = Number(data.internalDate || 0);
+        for (let i = 0; i < newBatch.length; i += 1) {
+            const msg = newBatch[i];
+            const msgInternalDate = Number(msg.internalDate || 0);
             const shouldHighlightNew = isSilent && msgInternalDate > latestSeenInternalDate;
             latestSeenInternalDate = Math.max(latestSeenInternalDate, msgInternalDate);
-            renderedMessageIds.add(data.id);
-            renderEmail(data, true, i, shouldHighlightNew);
+            renderedMessageIds.add(msg.id);
+            renderEmail(msg, true, i, shouldHighlightNew);
         }
-
     } catch (err) {
         if (err.name === 'AbortError') return;
-        if (err.status === 401) onLoggedOut();
+        if (err.status === 401) {
+            onLoggedOut();
+            if (!isSilent) showToast('Conecta con Google primero', 'error');
+            return;
+        }
         if (!isSilent) showToast(err.message, 'error');
     } finally {
         if (activeSearchController === requestController) {
@@ -398,6 +308,7 @@ async function searchMails(isSilent = false) {
         if (!isSilent && filterInput.value.trim()) startPolling();
     }
 }
+
 function startPolling() {
     stopPolling();
     if (!filterInput || !filterInput.value.trim()) return;
@@ -934,6 +845,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     renderAuthStatus(false);
     authBtn.onclick = startAuth;
+    handleAuthRedirectFeedback();
 
     if (backToTopBtn) {
         backToTopBtn.addEventListener('click', () => {

@@ -1,0 +1,16 @@
+project_id = "azqbqztbrvnpjxgizhcj"
+
+[functions.google-auth-start]
+verify_jwt = false
+
+[functions.google-auth-callback]
+verify_jwt = false
+
+[functions.gmail-session]
+verify_jwt = false
+
+[functions.gmail-search]
+verify_jwt = false
+
+[functions.gmail-disconnect]
+verify_jwt = false
