@@ -6,7 +6,7 @@
 const SUPABASE_FUNCTIONS_BASE_URL = 'https://azqbqztbrvnpjxgizhcj.supabase.co/functions/v1';
 
 const DEFAULT_MAX_RESULTS = 5;
-const POLLING_INTERVAL_MS = 2 * 1000;
+const POLLING_INTERVAL_MS = 7 * 1000;
 const SK_SESSION_ID = 'query_backend_session_id';
 
 let sessionProfile = null;
@@ -15,6 +15,7 @@ let isSearching = false;
 let pollingInterval = null;
 let renderedMessageIds = new Set();
 let latestSeenInternalDate = 0;
+let lastLoadedFilter = '';
 let defaultAuthBtnHtml = '';
 let activeSearchController = null;
 
@@ -240,11 +241,15 @@ async function searchMails(isSilent = false) {
 
     const requestController = new AbortController();
     activeSearchController = requestController;
+    const shouldPreserveResults = !isSilent && filter === lastLoadedFilter && renderedMessageIds.size > 0;
+    const shouldHighlightNew = isSilent || shouldPreserveResults;
 
     if (!isSilent) {
         stopPolling();
         setLoading(true);
-        resetSearchResults();
+        if (!shouldPreserveResults) {
+            resetSearchResults();
+        }
     } else {
         isSearching = true;
     }
@@ -270,7 +275,7 @@ async function searchMails(isSilent = false) {
 
         const messages = Array.isArray(data?.messages) ? data.messages : [];
         if (!messages.length) {
-            if (!isSilent) {
+            if (!isSilent && !shouldPreserveResults) {
                 resultsContainer.innerHTML = `
                     <div style="text-align:center; padding:40px; border-radius:18px; border:1px dashed var(--border);">
                         <div style="font-size:0.9rem; font-weight:600; color:var(--text); margin-bottom:8px;">No se encontraron resultados</div>
@@ -282,14 +287,20 @@ async function searchMails(isSilent = false) {
 
         const newBatch = messages.filter((message) => !renderedMessageIds.has(message.id)).reverse();
         if (requestController.signal.aborted || filterInput.value.trim() !== filter) return;
+        lastLoadedFilter = filter;
+
+        if (!isSilent && shouldPreserveResults && newBatch.length === 0) {
+            showToast('No hay correos nuevos', 'success');
+            return;
+        }
 
         for (let i = 0; i < newBatch.length; i += 1) {
             const msg = newBatch[i];
             const msgInternalDate = Number(msg.internalDate || 0);
-            const shouldHighlightNew = isSilent && msgInternalDate > latestSeenInternalDate;
+            const highlightAsNew = shouldHighlightNew && msgInternalDate > latestSeenInternalDate;
             latestSeenInternalDate = Math.max(latestSeenInternalDate, msgInternalDate);
             renderedMessageIds.add(msg.id);
-            renderEmail(msg, true, i, shouldHighlightNew);
+            renderEmail(msg, true, i, highlightAsNew);
         }
     } catch (err) {
         if (err.name === 'AbortError') return;
@@ -820,6 +831,7 @@ function resetSearchResults() {
     if (resultsContainer) resultsContainer.innerHTML = '';
     renderedMessageIds.clear();
     latestSeenInternalDate = 0;
+    lastLoadedFilter = '';
 }
 
 function showToast(text, type = 'error') {
