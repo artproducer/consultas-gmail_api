@@ -7,13 +7,17 @@ const SUPABASE_FUNCTIONS_BASE_URL = 'https://azqbqztbrvnpjxgizhcj.supabase.co/fu
 
 const DEFAULT_MAX_RESULTS = 5;
 const POLLING_INTERVAL_MS = 2 * 1000;
+const AUTO_PAUSE_IDLE_MS = 10 * 1000;
+const AUTO_PAUSE_EMPTY_POLLS_THRESHOLD = Math.ceil(AUTO_PAUSE_IDLE_MS / POLLING_INTERVAL_MS);
 const SK_SESSION_ID = 'query_backend_session_id';
 
 let sessionProfile = null;
 let isConnected = false;
 let isSearching = false;
 let pollingPaused = false;
+let pollingPauseReason = null;
 let pollingInterval = null;
+let emptyPollingCycles = 0;
 let renderedMessageIds = new Set();
 let latestSeenInternalDate = 0;
 let lastLoadedFilter = '';
@@ -132,6 +136,8 @@ function onLoggedOut() {
     isConnected = false;
     sessionProfile = null;
     pollingPaused = false;
+    pollingPauseReason = null;
+    emptyPollingCycles = 0;
     stopPolling();
     abortActiveSearch();
     resetSearchResults();
@@ -235,7 +241,7 @@ async function searchMails(isSilent = false) {
     }
 
     if (!isSilent && filter !== lastLoadedFilter) {
-        resumeMonitoringState();
+        resumeMonitoringState(true);
     }
 
     if (!isAuthed()) {
@@ -282,6 +288,7 @@ async function searchMails(isSilent = false) {
 
         const messages = Array.isArray(data?.messages) ? data.messages : [];
         if (!messages.length) {
+            if (isSilent) registerPollingIdleCycle();
             if (!isSilent && !shouldPreserveResults) {
                 resultsContainer.innerHTML = `
                     <div style="text-align:center; padding:40px; border-radius:18px; border:1px dashed var(--border);">
@@ -295,6 +302,13 @@ async function searchMails(isSilent = false) {
         const newBatch = messages.filter((message) => !renderedMessageIds.has(message.id)).reverse();
         if (requestController.signal.aborted || filterInput.value.trim() !== filter) return;
         lastLoadedFilter = filter;
+
+        if (isSilent) {
+            if (newBatch.length > 0) resetPollingIdleCycle();
+            else registerPollingIdleCycle();
+        } else {
+            resetPollingIdleCycle();
+        }
 
         if (!isSilent && shouldPreserveResults && newBatch.length === 0) {
             showToast('No hay correos nuevos', 'success');
@@ -330,6 +344,7 @@ async function searchMails(isSilent = false) {
 function startPolling() {
     stopPolling();
     if (pollingPaused || !filterInput || !filterInput.value.trim()) return;
+    resetPollingIdleCycle();
     const live = document.getElementById('liveStatus');
     if (live) live.classList.add('is-live');
     pollingInterval = setInterval(() => {
@@ -622,6 +637,13 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
 
     const isAmazonLoginAlert = /amazon/i.test(from) && /inicio de sesi[oó]n/i.test(subject);
     if (isAmazonLoginAlert) {
+        if (!foundCode) {
+            const amazonVisibleCodeMatch = normalizeComparableText(`${msg.snippet || ''} ${pureText}`).match(/codigo de verificacion es[: ]+((\d\s*){4,8})/i);
+            if (amazonVisibleCodeMatch) {
+                foundCode = amazonVisibleCodeMatch[1].replace(/\s+/g, '');
+            }
+        }
+
         const dateMatch = searchContext.match(/Fecha:\s*([^|]+?)(?=\s+Dispositivo:|$)/i);
         const deviceMatch = searchContext.match(/Dispositivo:\s*([^|]+?)(?=\s+Cerca de:|$)/i);
         const locationMatch = searchContext.match(/Cerca de:\s*([^|]+?)(?=\s+Si fuiste t[uú]|$)/i);
@@ -637,6 +659,14 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
             displaySnippet = `Intento detectado: ${summaryParts.join(' · ')}`;
         } else {
             displaySnippet = `Seguridad: <strong>Revisa la alerta de Amazon</strong>`;
+        }
+    }
+
+    if (!foundCode) {
+        const visibleSummaryText = normalizeComparableText(displaySnippet.replace(/<[^>]*>/g, ' '));
+        const visibleSummaryCodeMatch = visibleSummaryText.match(/(?:codigo(?: de verificacion)? es|codigo:|verification code is)[: ]+((\d\s*){4,8})/i);
+        if (visibleSummaryCodeMatch) {
+            foundCode = visibleSummaryCodeMatch[1].replace(/\s+/g, '');
         }
     }
 
@@ -992,15 +1022,40 @@ function updatePollingToggleButton() {
     pollingToggleBtn.classList.toggle('is-paused', pollingPaused);
 }
 
-function resumeMonitoringState() {
+function resumeMonitoringState(forceAutoResume = false) {
     if (!pollingPaused) return;
+    if (pollingPauseReason === 'auto' && !forceAutoResume) return;
     pollingPaused = false;
+    pollingPauseReason = null;
+    resetPollingIdleCycle();
     updatePollingToggleButton();
+}
+
+function resetPollingIdleCycle() {
+    emptyPollingCycles = 0;
+}
+
+function pausePollingAutomatically() {
+    pollingPaused = true;
+    pollingPauseReason = 'auto';
+    resetPollingIdleCycle();
+    stopPolling();
+    updatePollingToggleButton();
+    showToast('Monitoreo pausado tras 10s sin correos nuevos', 'success');
+}
+
+function registerPollingIdleCycle() {
+    if (pollingPaused) return;
+    emptyPollingCycles += 1;
+    if (emptyPollingCycles >= AUTO_PAUSE_EMPTY_POLLS_THRESHOLD) {
+        pausePollingAutomatically();
+    }
 }
 
 function clearLoadedResultsState() {
     abortActiveSearch();
     stopPolling();
+    resetPollingIdleCycle();
     resetSearchResults();
     setLoading(false);
 }
@@ -1052,7 +1107,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 clearLoadedResultsState();
             }
             if (currentFilter && currentFilter !== lastLoadedFilter) {
-                resumeMonitoringState();
+                resumeMonitoringState(true);
             }
         });
         updateClearFilterVisibility();
@@ -1098,15 +1153,20 @@ window.clearFilterInput = function () {
 };
 
 window.togglePolling = function () {
-    pollingPaused = !pollingPaused;
     if (pollingPaused) {
-        stopPolling();
-        showToast('Actualizacion pausada', 'success');
-    } else {
+        pollingPaused = false;
+        pollingPauseReason = null;
+        resetPollingIdleCycle();
         if (filterInput.value.trim() && !isSearching) {
             startPolling();
         }
         showToast('Actualizacion reanudada', 'success');
+    } else {
+        pollingPaused = true;
+        pollingPauseReason = 'manual';
+        resetPollingIdleCycle();
+        stopPolling();
+        showToast('Actualizacion pausada', 'success');
     }
     updatePollingToggleButton();
 };
