@@ -437,6 +437,33 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         }
     }
 
+    // 3.5 Specific verification-email templates (Google and similar)
+    if (!foundCode) {
+        const verificationPatterns = [
+            /(?:puedes usar este código para verificar que la dirección es tuya|puedes usar este codigo para verificar que la direccion es tuya|usa este código para verificar que la dirección es tuya|escribe el código para validar|use this code to verify that the email address is yours|enter the code to verify).{0,180}?\b(\d{4,8})\b/i,
+            /verificar que esta dirección de correo electrónico es tuya.{0,220}?\b(\d{4,8})\b/i,
+            /verify that this email address is yours.{0,220}?\b(\d{4,8})\b/i
+        ];
+
+        for (const pattern of verificationPatterns) {
+            const match = searchContext.match(pattern);
+            if (match && !isInvalidCode(match[1], searchContext)) {
+                foundCode = match[1];
+                break;
+            }
+        }
+    }
+
+    if (!foundCode && isHtml && /(?:verificar|verify).{0,80}(?:dirección de correo|email address)/i.test(searchContext)) {
+        const prominentCode = Array.from(doc.querySelectorAll('h1, h2, h3, h4, p, td, div, span, strong, b, font'))
+            .map(el => (el.textContent || '').trim().replace(/\s+/g, ''))
+            .find(text => /^\d{4,8}$/.test(text) && !isInvalidCode(text, searchContext));
+
+        if (prominentCode) {
+            foundCode = prominentCode;
+        }
+    }
+
     // 4. Final Fallback: If email subject screams "code", grab the first valid 4-8 digit number
     if (!foundCode && /(código|code|verific|acceso|inicio|sesión|login|confirma|cambio)/i.test(subject)) {
         const allNums = searchContext.match(/\b\d{4,8}\b/g) || [];
@@ -453,13 +480,21 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         // Strict regex for Geography (excludes CSS media query leaks)
         const locationMatch = searchContext.match(/(?:Cerca de|Cerca|En)\s+(?!(?:and|min|max|width))\b([^,\|]{3,50}, [^,\|]{3,50}(?:, [^,\|]{3,50})?)/i);
         const accountMatch = searchContext.match(/(?:Cuenta de Google|la cuenta)\s+([^\s]+@gmail\.com)/i);
+        const unusualActivity = /actividad inusual|unusual activity|si no solicitaste|if you did not request/i.test(searchContext);
+        const resetIntent = /restablecer tu contraseñ|cambia tu contraseñ|change your password|reset your password/i.test(searchContext);
 
         if (accountMatch) {
             displaySnippet = `Verificando cuenta: <strong>${accountMatch[1].trim()}</strong>`;
         } else if (locationMatch && locationMatch[1].includes(',')) {
             displaySnippet = `Inicio detectado en: <strong>${locationMatch[1].trim()}</strong>`;
         } else if (lowerSub.includes('contraseña') || lowerSub.includes('password')) {
-            displaySnippet = `Actualización de seguridad confirmada`;
+            if (unusualActivity) {
+                displaySnippet = `Seguridad: <strong>Posible actividad inusual</strong>`;
+            } else if (resetIntent) {
+                displaySnippet = `Acción requerida: <strong>Cambia tu contraseña</strong>`;
+            } else {
+                displaySnippet = `Seguridad: <strong>Revisa el cambio de contraseña</strong>`;
+            }
         } else if (lowerSub.includes('verific')) {
             displaySnippet = `Confirmación: <strong>Escribe el código para validar</strong>`;
         }
@@ -504,15 +539,16 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         const deviceMatch = searchContext.match(/Dispositivo:\s*([^|]+?)(?=\s+Cerca de:|$)/i);
         const locationMatch = searchContext.match(/Cerca de:\s*([^|]+?)(?=\s+Si fuiste t[uú]|$)/i);
         const summaryParts = [];
+        const shortDate = dateMatch ? dateMatch[1].trim().replace(/\s+(Colombia Standard Time|GMT[^\s]*)/i, '') : '';
 
-        if (dateMatch) summaryParts.push(`<strong>${dateMatch[1].trim()}</strong>`);
+        if (locationMatch) summaryParts.push(`<strong>${locationMatch[1].trim()}</strong>`);
         if (deviceMatch) summaryParts.push(deviceMatch[1].trim());
-        if (locationMatch) summaryParts.push(locationMatch[1].trim());
+        if (shortDate) summaryParts.push(shortDate);
 
         if (summaryParts.length > 0) {
-            displaySnippet = `Inicio detectado: ${summaryParts.join(' · ')}`;
+            displaySnippet = `Intento detectado: ${summaryParts.join(' · ')}`;
         } else {
-            displaySnippet = `Inicio detectado: <strong>Revisa la alerta de Amazon</strong>`;
+            displaySnippet = `Seguridad: <strong>Revisa la alerta de Amazon</strong>`;
         }
     }
 
@@ -524,11 +560,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         useFromAction = true;
     }
 
-    let mainAction = findMainAction(content, isHtml);
-
-    if (isAmazonLoginAlert) {
-        mainAction = null;
-    }
+    let mainAction = findMainAction(content, isHtml, subject);
 
     // If body was empty, force a "Copy Email" action
     if (useFromAction && !mainAction) {
@@ -567,6 +599,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         const isApprove = mainAction.label === 'APROBAR INICIO';
         const isRequest = mainAction.label === 'SOLICITAR CÓDIGO';
         const isFirstSteps = mainAction.label === 'PRIMEROS PASOS';
+        const isDeny = mainAction.label === 'DENEGAR ACCESO';
         const isCopy = mainAction.isCopyEmail;
 
         let btnColor = 'var(--green)';
@@ -577,7 +610,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         if (mainAction.label === 'SÍ, LO SOLICITÉ YO' || mainAction.label === 'ACEPTAR INVITACIÓN' || isCreate || isApprove || isRequest || isFirstSteps) {
             btnColor = '#e50914'; // Netflix Red
             btnShadow = 'rgba(229,9,20,0.4)';
-        } else if (isProtection) {
+        } else if (isProtection || isDeny) {
             btnColor = '#ff6600'; // Crunchyroll/Security Orange
             btnShadow = 'rgba(255,102,0,0.4)';
         } else if (isBilling) {
@@ -756,8 +789,9 @@ function applyMaxResultsChange() {
 }
 
 // Manual extractor based on keywords
-function findMainAction(content, isHtml) {
+function findMainAction(content, isHtml, subject = '') {
     const rules = [
+        { label: 'DENEGAR ACCESO', regex: /denegar|deny|no lo solicitaste|if this wasn't you|if you did not request/i },
         { label: 'SÍ, LO SOLICITÉ YO', regex: /sí, lo solicit[eé] yo|sí, he sido yo|sí, la envi[eé] yo|confirmar solicitud/i },
         { label: 'APROBAR INICIO', regex: /aprobar inicio|aprobar acceso|approve login/i },
         { label: 'VERIFICAR CUENTA', regex: /verificar cuenta|confirmar correo|verificar correo electr[oó]nico|verify account|confirm email/i },
@@ -775,6 +809,13 @@ function findMainAction(content, isHtml) {
         { label: 'REESTABLECER', regex: /restablecer|recuperar|reset|recover/i }
     ];
 
+    const normalizeText = (value = '') => value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+
     if (isHtml) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(content, 'text/html');
@@ -784,11 +825,32 @@ function findMainAction(content, isHtml) {
             const match = links.find(l => {
                 const text = (l.textContent || l.innerText || '').trim();
                 const title = (l.getAttribute('title') || l.getAttribute('aria-label') || '').trim();
-                return rule.regex.test(text) || rule.regex.test(title);
+                const context = l.parentElement ? l.parentElement.textContent || '' : '';
+                return rule.regex.test(text) || rule.regex.test(title) || rule.regex.test(context);
             });
 
             if (match && match.href && match.href.startsWith('http')) {
                 return { label: rule.label, url: match.href };
+            }
+        }
+
+        const normalizedDocText = normalizeText(`${subject} ${doc.body?.textContent || ''}`);
+        const passwordRelated = /cambio de contrasena|cambiar contrasena|restablecer contrasena|reset password|change password|recover password/.test(normalizedDocText);
+
+        if (passwordRelated) {
+            const passwordLink = links.find((link) => {
+                const href = link.href || '';
+                const text = normalizeText(`${link.textContent || ''} ${link.getAttribute('title') || ''} ${link.getAttribute('aria-label') || ''}`);
+                const context = normalizeText(link.parentElement ? link.parentElement.textContent || '' : '');
+                return href.startsWith('http') && (
+                    /reset|recover|password|contrasena|passwd|token/.test(href.toLowerCase()) ||
+                    /cambiar contrasena|restablecer contrasena|change password|reset password/.test(text) ||
+                    /cambiar contrasena|restablecer contrasena|change password|reset password/.test(context)
+                );
+            });
+
+            if (passwordLink) {
+                return { label: 'CAMBIAR CONTRASEÑA', url: passwordLink.href };
             }
         }
     } else {
