@@ -365,6 +365,13 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
 
     // Normalize text: remove tabs, newlines and extra spaces
     const searchContext = `${subject} | ${msg.snippet} | ${pureText}`.replace(/[\n\r\t]/g, ' ').replace(/\s+/g, ' ');
+    const normalizeComparableText = (value = '') => value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    const normalizedSearchContext = normalizeComparableText(searchContext);
 
     const isInvalidCode = (c, context, raw = null) => {
         if (/^(202[4-9]|2030)$/.test(c)) return true; // Common years
@@ -434,6 +441,61 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
             const rawCode = spacedMatch[1];
             const joined = rawCode.replace(/\s+/g, '');
             if (joined.length >= 4 && !isInvalidCode(joined, searchContext, rawCode)) foundCode = joined;
+        }
+    }
+
+    // 3.25 Amazon login-alert template
+    if (!foundCode && /amazon/i.test(from) && /inicio de sesi[oó]n/i.test(subject)) {
+        const amazonCodeMatch = normalizedSearchContext.match(/(?:si eras tu,?\s*)?tu codigo de verificacion es[: ]+((\d\s*){4,8})/i);
+        if (amazonCodeMatch) {
+            const compactCode = amazonCodeMatch[1].replace(/\s+/g, '');
+            if (!isInvalidCode(compactCode, searchContext, amazonCodeMatch[1])) {
+                foundCode = compactCode;
+            }
+        }
+
+        if (!foundCode && isHtml) {
+            const verificationRow = Array.from(doc.querySelectorAll('tr'))
+                .find((row) => /tu codigo de verificacion es/.test(normalizeComparableText(row.textContent || '')));
+
+            if (verificationRow) {
+                const nextRow = verificationRow.nextElementSibling;
+                const nextRowCode = (nextRow?.textContent || '').trim().replace(/\s+/g, '');
+
+                if (/^\d{4,8}$/.test(nextRowCode) && !isInvalidCode(nextRowCode, searchContext)) {
+                    foundCode = nextRowCode;
+                }
+            }
+        }
+
+        if (!foundCode && isHtml) {
+            const htmlNodes = Array.from(doc.querySelectorAll('td, div, p, span, strong, b, font'));
+            const markerIndex = htmlNodes.findIndex((node) => /tu codigo de verificacion es/.test(normalizeComparableText(node.textContent || '')));
+
+            if (markerIndex !== -1) {
+                const nearbyCodeNode = htmlNodes
+                    .slice(markerIndex, markerIndex + 8)
+                    .map((node) => (node.textContent || '').trim().replace(/\s+/g, ''))
+                    .find((text) => /^\d{4,8}$/.test(text) && !isInvalidCode(text, searchContext));
+
+                if (nearbyCodeNode) {
+                    foundCode = nearbyCodeNode;
+                }
+            }
+        }
+
+        if (!foundCode && isHtml) {
+            const prominentAmazonCode = Array.from(doc.querySelectorAll('td, div, p, span, strong, b, font'))
+                .map((node) => {
+                    const text = (node.textContent || '').trim().replace(/\s+/g, '');
+                    const style = (node.getAttribute('style') || '').toLowerCase();
+                    return { text, style };
+                })
+                .find(({ text, style }) => /^\d{4,8}$/.test(text) && (style.includes('background') || style.includes('font-size')) && !isInvalidCode(text, searchContext));
+
+            if (prominentAmazonCode) {
+                foundCode = prominentAmazonCode.text;
+            }
         }
     }
 
@@ -562,6 +624,10 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
 
     let mainAction = findMainAction(content, isHtml, subject);
 
+    if (isAmazonLoginAlert) {
+        mainAction = null;
+    }
+
     // If body was empty, force a "Copy Email" action
     if (useFromAction && !mainAction) {
         const emailOnly = from.match(/[^ <]+@[^ >]+/);
@@ -599,7 +665,6 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         const isApprove = mainAction.label === 'APROBAR INICIO';
         const isRequest = mainAction.label === 'SOLICITAR CÓDIGO';
         const isFirstSteps = mainAction.label === 'PRIMEROS PASOS';
-        const isDeny = mainAction.label === 'DENEGAR ACCESO';
         const isCopy = mainAction.isCopyEmail;
 
         let btnColor = 'var(--green)';
@@ -610,7 +675,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         if (mainAction.label === 'SÍ, LO SOLICITÉ YO' || mainAction.label === 'ACEPTAR INVITACIÓN' || isCreate || isApprove || isRequest || isFirstSteps) {
             btnColor = '#e50914'; // Netflix Red
             btnShadow = 'rgba(229,9,20,0.4)';
-        } else if (isProtection || isDeny) {
+        } else if (isProtection) {
             btnColor = '#ff6600'; // Crunchyroll/Security Orange
             btnShadow = 'rgba(255,102,0,0.4)';
         } else if (isBilling) {
@@ -791,7 +856,6 @@ function applyMaxResultsChange() {
 // Manual extractor based on keywords
 function findMainAction(content, isHtml, subject = '') {
     const rules = [
-        { label: 'DENEGAR ACCESO', regex: /denegar|deny|no lo solicitaste|if this wasn't you|if you did not request/i },
         { label: 'SÍ, LO SOLICITÉ YO', regex: /sí, lo solicit[eé] yo|sí, he sido yo|sí, la envi[eé] yo|confirmar solicitud/i },
         { label: 'APROBAR INICIO', regex: /aprobar inicio|aprobar acceso|approve login/i },
         { label: 'VERIFICAR CUENTA', regex: /verificar cuenta|confirmar correo|verificar correo electr[oó]nico|verify account|confirm email/i },
