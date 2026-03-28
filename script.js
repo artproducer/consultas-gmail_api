@@ -846,6 +846,13 @@ function resumeMonitoringState() {
     updatePollingToggleButton();
 }
 
+function clearLoadedResultsState() {
+    abortActiveSearch();
+    stopPolling();
+    resetSearchResults();
+    setLoading(false);
+}
+
 function resetSearchResults() {
     if (resultsContainer) resultsContainer.innerHTML = '';
     renderedMessageIds.clear();
@@ -887,8 +894,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (filterInput && clearFilterBtn) {
         filterInput.addEventListener('input', () => {
+            const currentFilter = filterInput.value.trim();
             updateClearFilterVisibility();
-            if (filterInput.value.trim() && filterInput.value.trim() !== lastLoadedFilter) {
+            if (currentFilter !== lastLoadedFilter && (lastLoadedFilter || renderedMessageIds.size > 0)) {
+                clearLoadedResultsState();
+            }
+            if (currentFilter && currentFilter !== lastLoadedFilter) {
                 resumeMonitoringState();
             }
         });
@@ -927,11 +938,8 @@ window.pasteFromClipboard = function () {
 };
 
 window.clearFilterInput = function () {
-    abortActiveSearch();
-    stopPolling();
-    resetSearchResults();
+    clearLoadedResultsState();
     resumeMonitoringState();
-    setLoading(false);
     filterInput.value = '';
     filterInput.focus();
     updateClearFilterVisibility();
