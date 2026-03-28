@@ -411,7 +411,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
                 const style = el.getAttribute('style') || '';
                 const cls = el.className || '';
                 // Look for common code classes or letter-spacing
-                return (cls.includes('number') || cls.includes('code') || style.includes('letter-spacing')) && /^\d{4,8}$/.test(txt);
+                return (cls.includes('number') || cls.includes('code') || style.includes('letter-spacing') || (style.includes('background-color') && style.includes('font-weight:bold'))) && /^\d{4,8}$/.test(txt);
             });
         if (potentialCodes.length > 0) {
             foundCode = potentialCodes[0].textContent.trim().replace(/\s+/g, '');
@@ -444,10 +444,35 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         }
     }
 
+    if (!foundCode) {
+        const snippetCodeMatch = normalizeComparableText(msg.snippet || '').match(/(?:codigo de verificacion es|codigo para verificar|code to verify|verification code is)[: ]+((\d\s*){4,8})/i);
+        if (snippetCodeMatch) {
+            const compactSnippetCode = snippetCodeMatch[1].replace(/\s+/g, '');
+            if (!isInvalidCode(compactSnippetCode, searchContext, compactSnippetCode)) {
+                foundCode = compactSnippetCode;
+            }
+        }
+    }
+
     // 3.25 Amazon login-alert template
     if (!foundCode && /amazon/i.test(from) && /inicio de sesi[oó]n/i.test(subject)) {
+        if (isHtml) {
+            const amazonCodeCell = Array.from(doc.querySelectorAll('td'))
+                .find((cell) => {
+                    const text = (cell.textContent || '').trim().replace(/\s+/g, '');
+                    const style = (cell.getAttribute('style') || '').toLowerCase();
+                    return /^\d{4,8}$/.test(text)
+                        && style.includes('background-color:#d3d3d3')
+                        && style.includes('font-weight:bold');
+                });
+
+            if (amazonCodeCell) {
+                foundCode = amazonCodeCell.textContent.trim().replace(/\s+/g, '');
+            }
+        }
+
         const amazonCodeMatch = normalizedSearchContext.match(/(?:si eras tu,?\s*)?tu codigo de verificacion es[: ]+((\d\s*){4,8})/i);
-        if (amazonCodeMatch) {
+        if (!foundCode && amazonCodeMatch) {
             const compactCode = amazonCodeMatch[1].replace(/\s+/g, '');
             if (!isInvalidCode(compactCode, searchContext, amazonCodeMatch[1])) {
                 foundCode = compactCode;
@@ -608,6 +633,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         if (shortDate) summaryParts.push(shortDate);
 
         if (summaryParts.length > 0) {
+            if (foundCode) summaryParts.push(`Código: <strong>${foundCode}</strong>`);
             displaySnippet = `Intento detectado: ${summaryParts.join(' · ')}`;
         } else {
             displaySnippet = `Seguridad: <strong>Revisa la alerta de Amazon</strong>`;
