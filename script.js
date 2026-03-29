@@ -310,7 +310,7 @@ async function searchMails(isSilent = false) {
         return;
     }
 
-    if (!isSilent) {
+    if (!isSilent && filter !== lastLoadedFilter) {
         resumeMonitoringState(true);
     }
 
