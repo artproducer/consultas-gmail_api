@@ -9,6 +9,7 @@ const DEFAULT_MAX_RESULTS = 5;
 const POLLING_INTERVAL_MS = 2 * 1000;
 const AUTO_PAUSE_IDLE_MS = 12 * 1000;
 const AUTO_PAUSE_EMPTY_POLLS_THRESHOLD = Math.ceil(AUTO_PAUSE_IDLE_MS / POLLING_INTERVAL_MS);
+const DEFAULT_MANUAL_EMAIL_DOMAIN = '@dsorak.com';
 const SK_SESSION_ID = 'query_backend_session_id';
 
 let sessionProfile = null;
@@ -23,6 +24,7 @@ let latestSeenInternalDate = 0;
 let lastLoadedFilter = '';
 let defaultAuthBtnHtml = '';
 let activeSearchController = null;
+let filterEntryMode = 'manual';
 
 // DOM Cache
 let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn, pollingToggleBtn;
@@ -63,6 +65,17 @@ function getAppReturnUrl() {
     url.searchParams.delete('gmail_email');
     url.hash = '';
     return url.toString();
+}
+
+function canAutoCompleteDsorakEmail(value) {
+    return Boolean(value)
+        && !value.includes('@')
+        && /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(value);
+}
+
+function expandManualDsorakEmail(value) {
+    const clean = value.trim();
+    return canAutoCompleteDsorakEmail(clean) ? `${clean}${DEFAULT_MANUAL_EMAIL_DOMAIN}` : clean;
 }
 
 async function backendFetchJson(path, options = {}) {
@@ -418,6 +431,16 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         return false;
     };
 
+    const isInvalidAlphaCode = (value, context) => {
+        if (!/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{10,24}$/.test(value)) return true;
+        const upperContext = context.toUpperCase();
+        const pos = upperContext.indexOf(value);
+        if (pos === -1) return false;
+        const surrounding = upperContext.substring(Math.max(0, pos - 40), Math.min(upperContext.length, pos + value.length + 40));
+        if (surrounding.includes('HTTP') || surrounding.includes('HTTPS') || surrounding.includes('NFTOKEN') || surrounding.includes('LKID') || surrounding.includes('URL_')) return true;
+        return false;
+    };
+
     // 0. HTML Specific Search (High Confidence)
     if (isHtml) {
         const potentialCodes = Array.from(doc.querySelectorAll('td, span, div, b, strong, font'))
@@ -465,6 +488,24 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
             const compactSnippetCode = snippetCodeMatch[1].replace(/\s+/g, '');
             if (!isInvalidCode(compactSnippetCode, searchContext, compactSnippetCode)) {
                 foundCode = compactSnippetCode;
+            }
+        }
+    }
+
+    if (!foundCode && /comprobante(?: de pago)? de netflix|comprobante de pago netflix/i.test(normalizedSearchContext)) {
+        const alphaCodePatterns = [
+            /(?:pin(?: de netflix)?|codigo(?: de netflix)?|c[oó]digo(?: de netflix)?|clave|token|code)[^A-Z0-9]{0,40}\b([A-Z0-9]{10,24})\b/i,
+            /\b([A-Z]{2,}[A-Z0-9]{8,22})\b/
+        ];
+
+        for (const pattern of alphaCodePatterns) {
+            const match = (msg.snippet || '').toUpperCase().match(pattern);
+            if (match) {
+                const alphaCandidate = match[1].toUpperCase();
+                if (!isInvalidAlphaCode(alphaCandidate, `${msg.snippet || ''} ${searchContext}`.toUpperCase())) {
+                    foundCode = alphaCandidate;
+                    break;
+                }
             }
         }
     }
@@ -1153,7 +1194,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     if (filterInput && clearFilterBtn) {
-        filterInput.addEventListener('input', () => {
+        filterInput.addEventListener('input', (event) => {
+            if (event?.inputType === 'insertFromPaste') filterEntryMode = 'paste';
+            else if (event?.isTrusted) filterEntryMode = 'manual';
             const currentFilter = filterInput.value.trim();
             updateClearFilterVisibility();
             if (currentFilter !== lastLoadedFilter && (lastLoadedFilter || renderedMessageIds.size > 0)) {
@@ -1161,6 +1204,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (currentFilter && currentFilter !== lastLoadedFilter) {
                 resumeMonitoringState(true);
+            }
+        });
+        filterInput.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') return;
+            const currentFilter = filterInput.value.trim();
+            if (filterEntryMode === 'manual' && canAutoCompleteDsorakEmail(currentFilter)) {
+                event.preventDefault();
+                filterInput.value = expandManualDsorakEmail(currentFilter);
+                updateClearFilterVisibility();
+                searchMails();
             }
         });
         updateClearFilterVisibility();
@@ -1187,6 +1240,7 @@ window.pasteFromClipboard = function () {
     navigator.clipboard.readText().then(text => {
         const clean = text.trim();
         if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+            filterEntryMode = 'programmatic';
             filterInput.value = clean;
             updateClearFilterVisibility();
             showToast('Correo pegado', 'success');
@@ -1200,6 +1254,7 @@ window.pasteFromClipboard = function () {
 window.clearFilterInput = function () {
     clearLoadedResultsState();
     resumeMonitoringState();
+    filterEntryMode = 'manual';
     filterInput.value = '';
     filterInput.focus();
     updateClearFilterVisibility();
@@ -1231,6 +1286,7 @@ function updateClearFilterVisibility() {
 }
 
 document.getElementById('filterEmail').addEventListener('paste', () => {
+    filterEntryMode = 'paste';
     setTimeout(() => {
         updateClearFilterVisibility();
         const clean = filterInput.value.trim();
