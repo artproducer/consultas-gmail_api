@@ -7,7 +7,7 @@ const SUPABASE_FUNCTIONS_BASE_URL = 'https://azqbqztbrvnpjxgizhcj.supabase.co/fu
 
 const DEFAULT_MAX_RESULTS = 5;
 const POLLING_INTERVAL_MS = 2 * 1000;
-const AUTO_PAUSE_IDLE_MS = 10 * 1000;
+const AUTO_PAUSE_IDLE_MS = 12 * 1000;
 const AUTO_PAUSE_EMPTY_POLLS_THRESHOLD = Math.ceil(AUTO_PAUSE_IDLE_MS / POLLING_INTERVAL_MS);
 const SK_SESSION_ID = 'query_backend_session_id';
 
@@ -240,7 +240,7 @@ async function searchMails(isSilent = false) {
         return;
     }
 
-    if (!isSilent && filter !== lastLoadedFilter) {
+    if (!isSilent) {
         resumeMonitoringState(true);
     }
 
@@ -941,15 +941,31 @@ function findMainAction(content, isHtml, subject = '') {
         const doc = parser.parseFromString(content, 'text/html');
         const links = Array.from(doc.querySelectorAll('a'));
 
-        for (const rule of rules) {
-            const match = links.find(l => {
-                const text = (l.textContent || l.innerText || '').trim();
-                const title = (l.getAttribute('title') || l.getAttribute('aria-label') || '').trim();
-                const context = l.parentElement ? l.parentElement.textContent || '' : '';
-                return rule.regex.test(text) || rule.regex.test(title) || rule.regex.test(context);
-            });
+        const scoreRuleLink = (link, rule) => {
+            const href = (link.href || '').toLowerCase();
+            const text = normalizeText(link.textContent || link.innerText || '');
+            const title = normalizeText(`${link.getAttribute('title') || ''} ${link.getAttribute('aria-label') || ''}`);
+            const context = normalizeText(link.parentElement ? link.parentElement.textContent || '' : '');
+            let score = 0;
 
-            if (match && match.href && match.href.startsWith('http')) {
+            if (rule.regex.test(text)) score += 8;
+            if (rule.regex.test(title)) score += 7;
+            if (rule.regex.test(context)) score += 3;
+
+            if (/url_cta|extra\/activate|managehousehold|household|activate|approve|confirm|accept|join/.test(href)) score += 5;
+            if (/url_logo|\/browse\b|netflix\.com\/browse|logo/.test(href)) score -= 8;
+
+            return score;
+        };
+
+        for (const rule of rules) {
+            const match = links
+                .filter((link) => link.href && link.href.startsWith('http'))
+                .map((link) => ({ link, score: scoreRuleLink(link, rule) }))
+                .filter(({ score }) => score > 0)
+                .sort((a, b) => b.score - a.score)[0]?.link;
+
+            if (match) {
                 return { label: rule.label, url: match.href };
             }
         }
@@ -1041,7 +1057,7 @@ function pausePollingAutomatically() {
     resetPollingIdleCycle();
     stopPolling();
     updatePollingToggleButton();
-    showToast('Monitoreo pausado tras 10s sin correos nuevos', 'success');
+    showToast('Monitoreo pausado tras 12s sin correos nuevos', 'success');
 }
 
 function registerPollingIdleCycle() {
