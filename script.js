@@ -818,6 +818,9 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
             <span class="email-from">${from.split('<')[0].trim().replace(/['"]/g, '') || from}</span>
             <div class="email-top-actions">
                 <span class="email-date">${date}</span>
+                <div class="card-indicator" aria-hidden="true">
+                    <span class="card-indicator-chevron"></span>
+                </div>
             </div>
         </div>
         <div class="email-subject" style="pointer-events:none;">${subject}</div>
@@ -825,7 +828,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         <div class="card-summary">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:nowrap;">
                 <div class="email-snippet" style="pointer-events:none; margin-bottom:0; flex-grow:1; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${displaySnippet}</div>
-                <div style="display:flex; gap:8px; align-items:center; flex-shrink:0; margin-right:20px;">
+                <div style="display:flex; gap:8px; align-items:center; flex-shrink:0;">
                     ${codeHtml}
                     ${actionHtml}
                 </div>
@@ -840,7 +843,6 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
             }
             </div>
         </div>
-        <div class="card-indicator">▼</div>
     `;
 
     if (highlightAsNew) {
