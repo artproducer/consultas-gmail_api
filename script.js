@@ -707,9 +707,12 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         const inviteMatch = searchContext.match(/(\w+) te ha invitado(?: [^ ]+){0,5} a (?:unirse|su plan)/i);
         const deviceMatch = searchContext.match(/([A-Z][a-z0-9 ]+-[^|]+)/i) || searchContext.match(/([A-Z][a-z]+ Smart TV|Samsung|LG|Apple TV|Roku)/i);
         const netflixNewDeviceMatch = /dispositivo nuevo.*(usando tu cuenta|using your account)/i.test(searchContext) || /dispositivo nuevo.*cuenta/i.test(subject);
+        const netflixCreateAccountMatch = /ya casi terminas|vamos a crear tu cuenta|crear tu cuenta/i.test(searchContext) || /ya casi terminas/i.test(subject);
         const detailedDeviceMatch = searchContext.match(/Dispositivo\s+([^|]+?)(?=\s+Ubicaci[oó]n|\s+Fecha|\s+Hora|$)/i);
         const detailedLocationMatch = searchContext.match(/Ubicaci[oó]n\s+([^|]+?)(?=\s+\(|\s+Puede|\s+Dispositivo|$)/i);
         const netflixAccountMatch = searchContext.match(/netflix,\s*([^\s|,]+@[^\s|,]+)/i);
+        const expiresMatch = searchContext.match(/enlace vence en\s+(\d+)\s+minutos?/i);
+        const planMatch = searchContext.match(/planes desde\s+\$?\s*([0-9.,]+\/mes)/i);
 
         if (netflixNewDeviceMatch) {
             const summaryParts = [];
@@ -719,6 +722,11 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
             if (summaryParts.length > 0) {
                 displaySnippet = `Nuevo dispositivo: ${summaryParts.join(' · ')}`;
             }
+        } else if (netflixCreateAccountMatch) {
+            const summaryParts = ['<strong>Crea tu cuenta</strong>'];
+            if (expiresMatch) summaryParts.push(`vence en ${expiresMatch[1]} min`);
+            if (planMatch) summaryParts.push(`Planes desde ${planMatch[1]}`);
+            displaySnippet = `Cuenta lista: ${summaryParts.join(' · ')}`;
         } else if (subject.includes('Solicitud de inicio') || subject.includes('solicitud de inicio')) {
             const dev = deviceMatch ? deviceMatch[1].trim() : 'Dispositivo';
             displaySnippet = `Aprobar acceso: <strong>${dev}</strong>`;
@@ -1054,12 +1062,35 @@ function findMainAction(content, isHtml, subject = '') {
         const normalizedDocText = normalizeText(`${subject} ${doc.body?.textContent || ''}`);
         const netflixResetRelated = /completa tu solicitud de restablecimiento|restablecimiento de contrasena|restablecer contrasena|password reset|reset your password|recover your password/.test(normalizedDocText);
         const netflixNewDeviceRelated = /un dispositivo nuevo esta usando tu cuenta|new device is using your account|controla quien esta usando tu cuenta de netflix|new sign-in on your account/.test(normalizedDocText);
+        const netflixCreateAccountRelated = /ya casi terminas|vamos a crear tu cuenta|crear tu cuenta/.test(normalizedDocText);
 
         const netflixPasswordLink = links.find((link) => {
             const href = (link.href || '').toLowerCase();
             return href.startsWith('http')
                 && href.includes('netflix.com/password');
         });
+        const netflixCreateAccountLink = links
+            .filter((link) => {
+                const href = (link.href || '').toLowerCase();
+                const text = normalizeText(`${link.textContent || ''} ${link.getAttribute('title') || ''} ${link.getAttribute('aria-label') || ''}`);
+                const context = normalizeText(link.parentElement ? link.parentElement.textContent || '' : '');
+                return href.startsWith('http') && (
+                    /crear tu cuenta|create your account|create account/.test(text) ||
+                    /crear tu cuenta|create your account|create account/.test(context) ||
+                    /url_cta|signup|sign-up|register|activate|\/epr\?code=/.test(href)
+                );
+            })
+            .map((link) => {
+                const href = (link.href || '').toLowerCase();
+                let score = 0;
+
+                if (/\/epr\?code=/.test(href)) score += 20;
+                if (/url_cta|signup|sign-up|register|activate/.test(href)) score += 8;
+                if (/url_logo|\/browse\b|netflix\.com\/browse|logo/.test(href)) score -= 20;
+
+                return { link, score };
+            })
+            .sort((a, b) => b.score - a.score)[0]?.link;
         const netflixUpdatePaymentLink = links.find((link) => {
             const href = (link.href || '').toLowerCase();
             return href.startsWith('http')
@@ -1072,6 +1103,10 @@ function findMainAction(content, isHtml, subject = '') {
 
         if (netflixPasswordLink && netflixNewDeviceRelated) {
             return { label: 'CAMBIAR CONTRASEÑA', url: netflixPasswordLink.href };
+        }
+
+        if (netflixCreateAccountLink && netflixCreateAccountRelated) {
+            return { label: 'CREAR CUENTA', url: netflixCreateAccountLink.href };
         }
 
         if (netflixUpdatePaymentLink) {
@@ -1089,7 +1124,7 @@ function findMainAction(content, isHtml, subject = '') {
             if (rule.regex.test(title)) score += 7;
             if (rule.regex.test(context)) score += 3;
 
-            if (/url_cta|extra\/activate|managehousehold|household|activate|approve|confirm|accept|join|paymentpicker|url_update_payment/.test(href)) score += 5;
+            if (/url_cta|extra\/activate|managehousehold|household|activate|approve|confirm|accept|join|paymentpicker|url_update_payment|\/epr\?code=/.test(href)) score += 5;
             if (/url_logo|\/browse\b|netflix\.com\/browse|logo|accountpayment|retry_payment|url_retry_payment/.test(href)) score -= 8;
 
             return score;
