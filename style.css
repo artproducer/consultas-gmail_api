@@ -26,6 +26,12 @@
     --auth-btn-bg: rgba(255, 255, 255, 0.05);
     --auth-btn-border: rgba(255, 255, 255, 0.05);
     --auth-btn-hover-bg: rgba(255, 255, 255, 0.1);
+    --paste-btn-bg: linear-gradient(180deg, rgba(18, 140, 126, 0.2) 0%, rgba(11, 13, 14, 0.96) 100%);
+    --paste-btn-border: rgba(202, 217, 214, 0.28);
+    --paste-btn-border-hover: rgba(18, 140, 126, 0.72);
+    --paste-btn-shadow: 0 10px 20px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --paste-btn-icon: #dceae7;
+    --paste-btn-icon-hover: #ffffff;
     --subtle-chip-bg: rgba(255, 255, 255, 0.06);
     --subtle-card-bg: rgba(255, 255, 255, 0.03);
     --subtle-card-border: rgba(255, 255, 255, 0.06);
@@ -86,6 +92,12 @@ html[data-theme="light"] {
     --auth-btn-bg: rgba(18, 140, 126, 0.08);
     --auth-btn-border: rgba(18, 140, 126, 0.16);
     --auth-btn-hover-bg: rgba(18, 140, 126, 0.14);
+    --paste-btn-bg: linear-gradient(180deg, #ffffff 0%, #ecf5f2 100%);
+    --paste-btn-border: rgba(18, 140, 126, 0.26);
+    --paste-btn-border-hover: rgba(18, 140, 126, 0.52);
+    --paste-btn-shadow: 0 10px 22px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    --paste-btn-icon: #245950;
+    --paste-btn-icon-hover: #128c7e;
     --subtle-chip-bg: rgba(15, 23, 42, 0.05);
     --subtle-card-bg: rgba(15, 23, 42, 0.04);
     --subtle-card-border: rgba(15, 23, 42, 0.08);
@@ -539,15 +551,20 @@ html[data-theme="light"] .theme-icon-sun {
 }
 
 .input-row {
-    position: relative;
     display: flex;
     align-items: center;
+    gap: 12px;
+}
+
+.input-shell {
+    position: relative;
+    flex: 1;
 }
 
 input[type="email"] {
     width: 100%;
     height: 52px;
-    padding: 0 78px 0 16px;
+    padding: 0 50px 0 16px;
     font-size: 0.95rem;
     background: var(--surface2);
     border: 1px solid var(--border);
@@ -564,29 +581,56 @@ input[type="email"]:focus {
 }
 
 .paste-btn {
-    position: absolute;
-    right: 12px;
+    flex: 0 0 60px;
+    width: 60px;
+    height: 52px;
+    border-radius: 14px;
+    border: 1px solid var(--paste-btn-border);
+    background: var(--paste-btn-bg);
+    box-shadow: var(--paste-btn-shadow);
     cursor: pointer;
-    color: var(--text-muted);
-    width: 24px;
-    height: 24px;
+    color: var(--paste-btn-icon);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 0;
     user-select: none;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s, background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 
-.paste-btn:hover { color: var(--accent); }
+.paste-btn::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    border-radius: 13px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    pointer-events: none;
+}
+
+.paste-btn:hover {
+    color: var(--paste-btn-icon-hover);
+    border-color: var(--paste-btn-border-hover);
+    box-shadow: 0 12px 24px rgba(18, 140, 126, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    transform: translateY(-1px);
+}
+
+.paste-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-glow), var(--paste-btn-shadow);
+}
 
 .paste-btn svg {
-    width: 70px;
-    height: 70px;
+    width: 31px;
+    height: 31px;
 }
 
 .clear-btn {
     position: absolute;
-    right: 44px;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
     width: 24px;
     height: 24px;
     border-radius: 50%;
@@ -603,7 +647,7 @@ input[type="email"]:focus {
     user-select: none;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.2s, background-color 0.2s, color 0.2s;
+    transition: opacity 0.2s, background-color 0.2s, color 0.2s, transform 0.2s;
 }
 
 .clear-btn.show {
@@ -619,7 +663,7 @@ input[type="email"]:focus {
 #searchForm .btn-submit {
     margin-top: 0;
     width: auto;
-    min-width: 180px;
+    min-width: 140px;
     height: 52px;
     padding: 0 24px;
 }
@@ -1191,7 +1235,19 @@ input[type="email"]:focus {
         background: var(--secondary-paused-bg);
         border-color: var(--secondary-paused-border);
     }
-    input[type="email"] { padding: 11px 72px 11px 12px; font-size: 0.85rem; }
+    .input-row { gap: 10px; }
+    .input-shell { min-width: 0; }
+    input[type="email"] { padding: 11px 46px 11px 12px; font-size: 0.85rem; }
+    .paste-btn {
+        flex-basis: 56px;
+        width: 56px;
+        height: 44px;
+        border-radius: 12px;
+    }
+    .paste-btn svg {
+        width: 28px;
+        height: 28px;
+    }
     .max-control { height: 28px; padding: 3px 7px; }
     #maxResultsInput { width: 42px; font-size: 0.75rem; }
     .results-head { margin-bottom: 12px; }

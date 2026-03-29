@@ -835,7 +835,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
 
         let btnColor = 'var(--green)';
         let btnShadow = 'var(--green-glow)';
-        let txtColor = '#000';
+        let txtColor = '#fff';
         let clickAction = `event.stopPropagation()`;
 
         if (mainAction.label === 'SÍ, LO SOLICITÉ YO' || mainAction.label === 'ACEPTAR INVITACIÓN' || isCreate || isApprove || isRequest || isFirstSteps) {
@@ -857,7 +857,6 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         } else if (isCopy) {
             btnColor = '#3498db'; // Google Blue
             btnShadow = 'rgba(52,152,219,0.4)';
-            txtColor = '#000';
             clickAction = `event.stopPropagation(); copyToClipboard('${mainAction.email}', 'Correo copiado')`;
         }
 
