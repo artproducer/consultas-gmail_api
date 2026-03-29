@@ -11,6 +11,9 @@ const AUTO_PAUSE_IDLE_MS = 12 * 1000;
 const AUTO_PAUSE_EMPTY_POLLS_THRESHOLD = Math.ceil(AUTO_PAUSE_IDLE_MS / POLLING_INTERVAL_MS);
 const DEFAULT_MANUAL_EMAIL_DOMAIN = '@dsorak.com';
 const SK_SESSION_ID = 'query_backend_session_id';
+const SK_THEME = 'query_theme';
+const THEME_LIGHT = 'light';
+const THEME_DARK = 'dark';
 
 let sessionProfile = null;
 let isConnected = false;
@@ -27,7 +30,61 @@ let activeSearchController = null;
 let filterEntryMode = 'manual';
 
 // DOM Cache
-let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn, pollingToggleBtn;
+let resultsContainer, submitBtn, filterInput, authBtn, authText, backToTopBtn, clearFilterBtn, pollingToggleBtn, themeToggleBtn;
+
+// THEME
+function getStoredTheme() {
+    const storedTheme = localStorage.getItem(SK_THEME);
+    return storedTheme === THEME_LIGHT || storedTheme === THEME_DARK ? storedTheme : null;
+}
+
+function getPreferredTheme() {
+    const storedTheme = getStoredTheme();
+    if (storedTheme) return storedTheme;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? THEME_LIGHT : THEME_DARK;
+}
+
+function updateThemeToggleUi(theme) {
+    if (!themeToggleBtn) return;
+    const isLight = theme === THEME_LIGHT;
+    const nextModeLabel = isLight ? 'oscuro' : 'claro';
+
+    themeToggleBtn.setAttribute('aria-checked', String(isLight));
+    themeToggleBtn.setAttribute('aria-label', `Cambiar a modo ${nextModeLabel}`);
+    themeToggleBtn.title = `Cambiar a modo ${nextModeLabel}`;
+}
+
+function applyTheme(theme, persist = false) {
+    const normalizedTheme = theme === THEME_LIGHT ? THEME_LIGHT : THEME_DARK;
+    document.documentElement.setAttribute('data-theme', normalizedTheme);
+    document.documentElement.style.colorScheme = normalizedTheme;
+    updateThemeToggleUi(normalizedTheme);
+
+    if (persist) {
+        localStorage.setItem(SK_THEME, normalizedTheme);
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') === THEME_LIGHT ? THEME_LIGHT : THEME_DARK;
+    const nextTheme = currentTheme === THEME_LIGHT ? THEME_DARK : THEME_LIGHT;
+    applyTheme(nextTheme, true);
+}
+
+function syncThemeWithSystemPreference() {
+    if (!window.matchMedia) return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: light)');
+    const handleThemeChange = (event) => {
+        if (getStoredTheme()) return;
+        applyTheme(event.matches ? THEME_LIGHT : THEME_DARK);
+    };
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', handleThemeChange);
+    } else if (typeof mediaQuery.addListener === 'function') {
+        mediaQuery.addListener(handleThemeChange);
+    }
+}
 
 // AUTHENTICATION (SUPABASE BACKEND)
 function getBackendBaseUrl() {
@@ -756,10 +813,10 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
 
     let codeHtml = '';
     if (foundCode) {
-        // Code box is now directly clickable to copy, no extra button needed
+        // The code chip uses theme-aware CSS so both light and dark modes keep enough contrast.
         codeHtml = `
-            <div class="code-box click-to-copy" style="background:rgba(18,140,126,0.3); border:1px solid rgba(18,140,126,0.8); cursor:pointer; display:inline-flex; align-items:center; height:30px; padding:0 12px; border-radius:8px;" title="Clic para copiar" onclick="event.stopPropagation(); copyToClipboard('${foundCode}', 'Código copiado')">
-                <span class="code-value" style="color:#fff; font-size:1.1rem; letter-spacing:3px;">${foundCode}</span>
+            <div class="code-box click-to-copy" title="Clic para copiar" onclick="event.stopPropagation(); copyToClipboard('${foundCode}', 'Código copiado')">
+                <span class="code-value">${foundCode}</span>
             </div>
         `;
     }
@@ -1183,13 +1240,19 @@ document.addEventListener('DOMContentLoaded', () => {
     backToTopBtn = document.getElementById('backToTopBtn');
     clearFilterBtn = document.getElementById('clearFilterBtn');
     pollingToggleBtn = document.getElementById('pollingToggleBtn');
+    themeToggleBtn = document.getElementById('themeToggleBtn');
     const maxResultsInput = document.getElementById('maxResultsInput');
 
+    applyTheme(getPreferredTheme());
+    syncThemeWithSystemPreference();
     renderAuthStatus(false);
     authBtn.onclick = startAuth;
     handleAuthRedirectFeedback();
     updatePollingToggleButton();
 
+    if (themeToggleBtn) {
+        themeToggleBtn.addEventListener('click', toggleTheme);
+    }
     if (backToTopBtn) {
         backToTopBtn.addEventListener('click', () => {
             window.scrollTo({ top: 0, behavior: 'smooth' });
