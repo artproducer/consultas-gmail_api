@@ -608,8 +608,20 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
         const newNetflixMatch = searchContext.match(/Solicitud de (.*?), enviada desde:\s*([^,]+)/i);
         const inviteMatch = searchContext.match(/(\w+) te ha invitado(?: [^ ]+){0,5} a (?:unirse|su plan)/i);
         const deviceMatch = searchContext.match(/([A-Z][a-z0-9 ]+-[^|]+)/i) || searchContext.match(/([A-Z][a-z]+ Smart TV|Samsung|LG|Apple TV|Roku)/i);
+        const netflixNewDeviceMatch = /dispositivo nuevo.*(usando tu cuenta|using your account)/i.test(searchContext) || /dispositivo nuevo.*cuenta/i.test(subject);
+        const detailedDeviceMatch = searchContext.match(/Dispositivo\s+([^|]+?)(?=\s+Ubicaci[oó]n|\s+Fecha|\s+Hora|$)/i);
+        const detailedLocationMatch = searchContext.match(/Ubicaci[oó]n\s+([^|]+?)(?=\s+\(|\s+Puede|\s+Dispositivo|$)/i);
+        const netflixAccountMatch = searchContext.match(/netflix,\s*([^\s|,]+@[^\s|,]+)/i);
 
-        if (subject.includes('Solicitud de inicio') || subject.includes('solicitud de inicio')) {
+        if (netflixNewDeviceMatch) {
+            const summaryParts = [];
+            if (detailedDeviceMatch) summaryParts.push(`<strong>${detailedDeviceMatch[1].trim()}</strong>`);
+            if (detailedLocationMatch) summaryParts.push(detailedLocationMatch[1].trim());
+            if (netflixAccountMatch) summaryParts.push(netflixAccountMatch[1].trim());
+            if (summaryParts.length > 0) {
+                displaySnippet = `Nuevo dispositivo: ${summaryParts.join(' · ')}`;
+            }
+        } else if (subject.includes('Solicitud de inicio') || subject.includes('solicitud de inicio')) {
             const dev = deviceMatch ? deviceMatch[1].trim() : 'Dispositivo';
             displaySnippet = `Aprobar acceso: <strong>${dev}</strong>`;
         } else if (subject.includes('¡Casi lo tienes!')) {
@@ -714,7 +726,7 @@ function renderEmail(msg, prepend = false, animIndex = 0, highlightAsNew = false
     let actionHtml = '';
     if (mainAction) {
         const isProtection = mainAction.label === 'PROTEGER CUENTA';
-        const isBilling = mainAction.label === 'GESTIONAR PAGO';
+        const isBilling = mainAction.label === 'GESTIONAR PAGO' || mainAction.label === 'ACTUALIZAR PAGO';
         const isRenew = mainAction.label === 'RENOVAR';
         const isLogin = mainAction.label === 'INICIAR SESIÓN';
         const isCreate = mainAction.label === 'CREAR CUENTA';
@@ -940,6 +952,32 @@ function findMainAction(content, isHtml, subject = '') {
         const parser = new DOMParser();
         const doc = parser.parseFromString(content, 'text/html');
         const links = Array.from(doc.querySelectorAll('a'));
+        const normalizedDocText = normalizeText(`${subject} ${doc.body?.textContent || ''}`);
+        const netflixResetRelated = /completa tu solicitud de restablecimiento|restablecimiento de contrasena|restablecer contrasena|password reset|reset your password|recover your password/.test(normalizedDocText);
+        const netflixNewDeviceRelated = /un dispositivo nuevo esta usando tu cuenta|new device is using your account|controla quien esta usando tu cuenta de netflix|new sign-in on your account/.test(normalizedDocText);
+
+        const netflixPasswordLink = links.find((link) => {
+            const href = (link.href || '').toLowerCase();
+            return href.startsWith('http')
+                && href.includes('netflix.com/password');
+        });
+        const netflixUpdatePaymentLink = links.find((link) => {
+            const href = (link.href || '').toLowerCase();
+            return href.startsWith('http')
+                && (href.includes('netflix.com/simplemember/paymentpicker') || href.includes('url_update_payment'));
+        });
+
+        if (netflixPasswordLink && netflixResetRelated) {
+            return { label: 'SÍ, LO SOLICITÉ YO', url: netflixPasswordLink.href };
+        }
+
+        if (netflixPasswordLink && netflixNewDeviceRelated) {
+            return { label: 'CAMBIAR CONTRASEÑA', url: netflixPasswordLink.href };
+        }
+
+        if (netflixUpdatePaymentLink) {
+            return { label: 'ACTUALIZAR PAGO', url: netflixUpdatePaymentLink.href };
+        }
 
         const scoreRuleLink = (link, rule) => {
             const href = (link.href || '').toLowerCase();
@@ -952,8 +990,8 @@ function findMainAction(content, isHtml, subject = '') {
             if (rule.regex.test(title)) score += 7;
             if (rule.regex.test(context)) score += 3;
 
-            if (/url_cta|extra\/activate|managehousehold|household|activate|approve|confirm|accept|join/.test(href)) score += 5;
-            if (/url_logo|\/browse\b|netflix\.com\/browse|logo/.test(href)) score -= 8;
+            if (/url_cta|extra\/activate|managehousehold|household|activate|approve|confirm|accept|join|paymentpicker|url_update_payment/.test(href)) score += 5;
+            if (/url_logo|\/browse\b|netflix\.com\/browse|logo|accountpayment|retry_payment|url_retry_payment/.test(href)) score -= 8;
 
             return score;
         };
@@ -970,7 +1008,6 @@ function findMainAction(content, isHtml, subject = '') {
             }
         }
 
-        const normalizedDocText = normalizeText(`${subject} ${doc.body?.textContent || ''}`);
         const passwordRelated = /cambio de contrasena|cambiar contrasena|restablecer contrasena|reset password|change password|recover password/.test(normalizedDocText);
 
         if (passwordRelated) {
