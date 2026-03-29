@@ -177,7 +177,7 @@ body {
     position: relative;
     width: 74px;
     height: 38px;
-    padding: 0 10px;
+    padding: 0;
     border: 1px solid var(--border);
     border-radius: 999px;
     background: var(--surface);
@@ -214,18 +214,23 @@ body {
 }
 
 .theme-icon {
-    position: relative;
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
     z-index: 1;
     width: 15px;
     height: 15px;
     transition: color 0.2s, opacity 0.2s;
+    pointer-events: none;
 }
 
 .theme-icon-moon {
+    left: 18px;
     color: var(--theme-icon-on);
 }
 
 .theme-icon-sun {
+    left: 56px;
     color: var(--theme-icon-off);
 }
 
@@ -1204,6 +1209,12 @@ input[type="email"]:focus {
     .theme-toggle {
         width: 70px;
         height: 36px;
+    }
+    .theme-icon-moon {
+        left: 18px;
+    }
+    .theme-icon-sun {
+        left: 52px;
     }
     html[data-theme="light"] .theme-toggle::after {
         transform: translateX(34px);
