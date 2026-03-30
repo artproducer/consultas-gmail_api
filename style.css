@@ -26,12 +26,12 @@
     --auth-btn-bg: rgba(255, 255, 255, 0.05);
     --auth-btn-border: rgba(255, 255, 255, 0.05);
     --auth-btn-hover-bg: rgba(255, 255, 255, 0.1);
-    --paste-btn-bg: linear-gradient(180deg, rgba(18, 140, 126, 0.2) 0%, rgba(11, 13, 14, 0.96) 100%);
-    --paste-btn-border: rgba(202, 217, 214, 0.28);
-    --paste-btn-border-hover: rgba(18, 140, 126, 0.72);
-    --paste-btn-shadow: 0 10px 20px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    --paste-btn-icon: #dceae7;
-    --paste-btn-icon-hover: #ffffff;
+    --paste-btn-bg: rgba(18, 140, 126, 0.12);
+    --paste-btn-border: rgba(18, 140, 126, 0.28);
+    --paste-btn-border-hover: rgba(18, 140, 126, 0.36);
+    --paste-btn-shadow: none;
+    --paste-btn-icon: #d7fff7;
+    --paste-btn-icon-hover: #d7fff7;
     --subtle-chip-bg: rgba(255, 255, 255, 0.06);
     --subtle-card-bg: rgba(255, 255, 255, 0.03);
     --subtle-card-border: rgba(255, 255, 255, 0.06);
@@ -92,12 +92,12 @@ html[data-theme="light"] {
     --auth-btn-bg: rgba(18, 140, 126, 0.08);
     --auth-btn-border: rgba(18, 140, 126, 0.16);
     --auth-btn-hover-bg: rgba(18, 140, 126, 0.14);
-    --paste-btn-bg: linear-gradient(180deg, #ffffff 0%, #ecf5f2 100%);
-    --paste-btn-border: rgba(18, 140, 126, 0.26);
-    --paste-btn-border-hover: rgba(18, 140, 126, 0.52);
-    --paste-btn-shadow: 0 10px 22px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    --paste-btn-icon: #245950;
-    --paste-btn-icon-hover: #128c7e;
+    --paste-btn-bg: rgba(18, 140, 126, 0.14);
+    --paste-btn-border: rgba(18, 140, 126, 0.34);
+    --paste-btn-border-hover: rgba(18, 140, 126, 0.48);
+    --paste-btn-shadow: none;
+    --paste-btn-icon: #0d6156;
+    --paste-btn-icon-hover: #0d6156;
     --subtle-chip-bg: rgba(15, 23, 42, 0.05);
     --subtle-card-bg: rgba(15, 23, 42, 0.04);
     --subtle-card-border: rgba(15, 23, 42, 0.08);
@@ -600,25 +600,17 @@ input[type="email"]:focus {
     transition: transform 0.2s, border-color 0.2s, background 0.2s, color 0.2s, box-shadow 0.2s;
 }
 
-.paste-btn::before {
-    content: '';
-    position: absolute;
-    inset: 1px;
-    border-radius: 13px;
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    pointer-events: none;
-}
-
 .paste-btn:hover {
     color: var(--paste-btn-icon-hover);
     border-color: var(--paste-btn-border-hover);
-    box-shadow: 0 12px 24px rgba(18, 140, 126, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    background: var(--secondary-bg-hover);
+    box-shadow: var(--paste-btn-shadow);
     transform: translateY(-1px);
 }
 
 .paste-btn:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px var(--accent-glow), var(--paste-btn-shadow);
+    box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .paste-btn svg {
